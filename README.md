@@ -7,10 +7,6 @@ SideCli is a lightweight macOS terminal focused on a sidebar workflow:
 - Native-like terminal interaction and shortcuts
 - Minimal footprint (targeting a lightweight app package)
 
-## Download
-
-[![Direct DMG (latest)](https://img.shields.io/badge/Direct%20DMG%20(latest)-SideCli.dmg-4b74df?style=for-the-badge)](https://github.com/yuting-ai/SideCli/releases/latest/download/SideCli.dmg)
-
 ## Features
 
 - Tabs and split panes
@@ -44,6 +40,10 @@ xcodebuild -project "SideCli.xcodeproj" -scheme "SideCli" -configuration Debug b
 ## Third-Party Software
 
 - [xterm.js](https://xtermjs.org/) — MIT License
+
+## Download
+
+[![Direct DMG (latest)](https://img.shields.io/badge/Direct%20DMG%20(latest)-SideCli.dmg?style=flat&labelColor=30363d&color=2ea043)](https://github.com/yuting-ai/SideCli/releases/latest/download/SideCli.dmg)
 
 ## License
 
