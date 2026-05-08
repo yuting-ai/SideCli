@@ -1,15 +1,11 @@
-# macOS
 .DS_Store
 **/.DS_Store
 
-# Xcode user-local
+# Xcode user-local state
 **/xcuserdata/
 **/*.xcuserstate
 
-# SPM local cache
-**/xcshareddata/swiftpm/configuration/
-
-# Build
+# Build artifacts
 DerivedData/
 build/
 *.app

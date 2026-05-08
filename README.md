@@ -7,6 +7,12 @@ SideCli is a lightweight macOS terminal focused on a sidebar workflow:
 - Native-like terminal interaction and shortcuts
 - Minimal footprint (targeting a lightweight app package)
 
+## Download
+
+- Official website: [sidecli.com](https://sidecli.com)
+- Latest release (GitHub): [Download SideCli](https://github.com/yuting-ai/SideCli/releases/latest)
+- China mirror: add your domestic download URL here (recommended for faster access in mainland China)
+
 ## Features
 
 - Tabs and split panes
