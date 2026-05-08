@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Xcode user-local
+**/xcuserdata/
+**/*.xcuserstate
+
+# SPM local cache
+**/xcshareddata/swiftpm/configuration/
+
+# Build
+DerivedData/
+build/
+*.app
+*.dSYM
+
+# Local tooling
+.claude/
