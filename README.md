@@ -9,8 +9,12 @@ SideCli is a lightweight macOS terminal focused on a sidebar workflow:
 
 ## Download
 
+[![Latest Release](https://img.shields.io/github/v/release/yuting-ai/SideCli?display_name=tag&label=Latest%20Release)](https://github.com/yuting-ai/SideCli/releases/latest)
+[![GitHub Downloads (all assets, latest release)](https://img.shields.io/github/downloads/yuting-ai/SideCli/latest/total?label=Latest%20Downloads)](https://github.com/yuting-ai/SideCli/releases/latest)
+
 - Official website: [sidecli.com](https://sidecli.com)
-- Latest release (GitHub): [Download SideCli](https://github.com/yuting-ai/SideCli/releases/latest)
+- Direct DMG (latest): [SideCli.dmg](https://github.com/yuting-ai/SideCli/releases/latest/download/SideCli.dmg)
+- Release page (all assets): [github.com/yuting-ai/SideCli/releases/latest](https://github.com/yuting-ai/SideCli/releases/latest)
 - China mirror: add your domestic download URL here (recommended for faster access in mainland China)
 
 ## Features
