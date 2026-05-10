@@ -17,7 +17,7 @@ SideCli is a lightweight macOS terminal focused on a sidebar workflow:
 
 ## Demo
 
-<a href="https://www.youtube.com/watch?v=Bg47zOdqfzs" target="_blank" rel="noopener">Watch demo on YouTube</a>
+[Watch demo on YouTube](https://www.youtube.com/watch?v=Bg47zOdqfzs)
 
 ## Requirements
 
