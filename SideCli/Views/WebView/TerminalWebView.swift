@@ -16,7 +16,9 @@ struct TerminalWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        #if DEBUG
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        #endif
 
         let userContentController = WKUserContentController()
         userContentController.add(context.coordinator, name: "terminalInput")

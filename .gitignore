@@ -11,5 +11,18 @@ build/
 *.app
 *.dSYM
 
+# Xcode user state files
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+*~.nib
+
+# Build artifacts
+*.hmap
+*.ipa
+*.dSYM.zip
+
 # Local tooling
 .claude/
