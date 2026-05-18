@@ -47,7 +47,7 @@ xcodebuild -project "SideCli.xcodeproj" -scheme "SideCli" -configuration Debug b
 
 ## Download
 
-[![Direct DMG (latest)](./download-button.svg)](https://github.com/yuting-ai/SideCli/releases/download/1.1/SideCli.dmg)
+[![Direct DMG (latest)](./download-button.svg)](https://github.com/yuting-ai/SideCli/releases/latest/download/SideCli.dmg)
 
 ## License
 
