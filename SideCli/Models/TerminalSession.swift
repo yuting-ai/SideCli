@@ -20,7 +20,7 @@ class TerminalSession: ObservableObject, Identifiable {
     @Published var title: String
     @Published var state: TerminalState = .idle
     @Published var isActive: Bool = false
-    @Published var lastOutputAt: Date?
+    var lastOutputAt: Date?
     /// 当前工作目录（来自 OSC 7），格式如 ~/Projects/MyApp，用于 tooltip
     @Published var currentDirectory: String?
     /// 当前工作目录的原始绝对路径（来自 OSC 7），用于新建 session 时传入 startingDirectory
@@ -32,14 +32,12 @@ class TerminalSession: ObservableObject, Identifiable {
     private var ptyMaster: Int32 = -1
     private var ptySlave: Int32 = -1
     private var readSource: DispatchSourceRead?
-    private var writeSource: DispatchSourceWrite?
     private let queue = DispatchQueue(label: "com.sidecli.terminal.\(UUID().uuidString)", qos: .userInitiated)
     private(set) var userHasRenamedTab = false
     private var lastCols = 80
     private var lastRows = 24
 
     var onDataReceived: ((Data) -> Void)?
-    var onStateChanged: ((TerminalState) -> Void)?
 
     init(title: String? = nil, startingDirectory: String? = nil) {
         self.id = UUID()
@@ -93,24 +91,13 @@ class TerminalSession: ObservableObject, Identifiable {
             try process.run()
             self.process = process
             state = .running
-            onStateChanged?(.running)
 
             setupReadSource()
-
-            // Re-broadcast terminal size after the shell finishes initializing.
-            // Processes like Claude Code read $COLUMNS / TIOCGWINSZ at startup;
-            // sending SIGWINCH via TIOCSWINSZ forces them to re-query the correct width.
-            let (cols, rows) = (lastCols, lastRows)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, case .running = self.state else { return }
-                self.resize(cols: cols, rows: rows)
-            }
 
             process.terminationHandler = { [weak self] process in
                 DispatchQueue.main.async {
                     self?.cleanup()
                     self?.state = .finished(process.terminationStatus)
-                    self?.onStateChanged?(.finished(process.terminationStatus))
                 }
             }
 
@@ -137,9 +124,9 @@ class TerminalSession: ObservableObject, Identifiable {
     }
 
     func resize(cols: Int, rows: Int) {
-        guard ptyMaster >= 0 else { return }
         lastCols = cols
         lastRows = rows
+        guard ptyMaster >= 0 else { return }
         var winsize = winsize()
         winsize.ws_col = UInt16(cols)
         winsize.ws_row = UInt16(rows)
@@ -306,7 +293,7 @@ class TerminalSession: ObservableObject, Identifiable {
 
             if bytesRead > 0 {
                 let data = Data(bytes: buffer, count: bytesRead)
-                self.parseOSC2Sequences(from: [UInt8](data))
+                self.parseOSCSequences(from: [UInt8](data))
                 DispatchQueue.main.async {
                     self.lastOutputAt = Date()
                     self.onDataReceived?(data)
@@ -328,10 +315,10 @@ class TerminalSession: ObservableObject, Identifiable {
 
     // MARK: - OSC Sequence Parsing
 
-    /// Scan raw PTY bytes for OSC sequences:
+    /// Scans raw PTY bytes for OSC sequences:
     ///   OSC 2  – window title  → update tab title (if not user-renamed)
     ///   OSC 7  – cwd URL       → update tab title to last path component + store full path
-    private func parseOSC2Sequences(from bytes: [UInt8]) {
+    private func parseOSCSequences(from bytes: [UInt8]) {
         var i = 0
         while i < bytes.count {
             // ESC ]

@@ -43,7 +43,7 @@ xcodebuild -project "SideCli.xcodeproj" -scheme "SideCli" -configuration Debug b
 
 ## Third-Party Software
 
-- [xterm.js](https://xtermjs.org/) — MIT License
+- [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) — MIT License
 
 ## Download
 

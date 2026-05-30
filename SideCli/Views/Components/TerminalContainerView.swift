@@ -5,7 +5,7 @@
 //  Container view for displaying terminal tabs.
 //  Each tab renders one or two panes (left / right split) with a draggable divider.
 //
-//  WKWebView identity is preserved across split changes by:
+//  SwiftTerm TerminalView identity is preserved across split changes by:
 //  1. ForEach(tab.sessions, id: \.id) — SwiftUI tracks panes by session ID, not position.
 //  2. SplitDivider is always at position 0 inside SplitPaneView's HStack (0-width when
 //     inactive), so the terminal VStack stays at position 1 and is never recreated.
@@ -42,15 +42,19 @@ struct TerminalContainerView: View {
 // MARK: - Empty State
 
 struct EmptyTerminalView: View {
+    @AppStorage(AppPreferences.languageKey) private var appLanguageRaw = AppPreferences.languageDefault
+    private var language: AppLanguage { AppLanguage(rawValue: appLanguageRaw) ?? .english }
+    private func t(_ en: String, _ zh: String) -> String { language == .chinese ? zh : en }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            Text("No Active Terminal")
+            Text(t("No Active Terminal", "当前无活动终端"))
                 .font(.title2)
                 .foregroundColor(.secondary)
-            Text("Click + or press ⌘T to open a new terminal")
+            Text(t("Click + or press ⌘T to open a new terminal", "点击 + 或按 ⌘T 打开新终端"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -108,12 +112,20 @@ struct SplitPaneView: View {
     let fontSize: Int
     let onClose: () -> Void
 
+    private var terminalBgColor: Color {
+        if isDark {
+            return Color(NSColor(calibratedRed: 0.118, green: 0.118, blue: 0.129, alpha: 1))
+        } else {
+            return Color(NSColor(calibratedRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
+        }
+    }
+
     var body: some View {
         let dividerActive = index > 0 && tab.isSplit
         HStack(spacing: 0) {
             // Divider is always at position 0 in this HStack (0-width for left pane,
             // draggable for right pane) so the VStack stays at position 1 and the
-            // underlying WKWebView is never recreated on split state changes.
+            // underlying SwiftTerm TerminalView is never recreated on split state changes.
             SplitDivider(
                 isActive: dividerActive,
                 ratio: $tab.splitRatio,
@@ -126,11 +138,10 @@ struct SplitPaneView: View {
             .clipped()
 
             VStack(spacing: 0) {
-                // Path header — 0-height in single-pane mode.
-                SplitPaneHeader(session: session, onClose: onClose)
-                    .frame(height: tab.isSplit ? 26 : 0)
+                // Path header — shown in both split and single-pane modes.
+                SplitPaneHeader(session: session, showCloseButton: tab.isSplit, onClose: onClose)
+                    .frame(height: 26)
                     .clipped()
-                    .animation(.easeInOut(duration: 0.15), value: tab.isSplit)
 
                 SingleTerminalView(
                     session: session,
@@ -142,6 +153,7 @@ struct SplitPaneView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(terminalBgColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -149,7 +161,7 @@ struct SplitPaneView: View {
 // MARK: - Draggable Divider (NSViewRepresentable)
 //
 // Using AppKit directly instead of SwiftUI gestures because:
-// 1. NSTrackingArea gives reliable cursor changes next to WKWebViews.
+// 1. NSTrackingArea gives reliable cursor changes next to Metal-rendered views.
 // 2. mouseDragged events continue to fire even when the cursor leaves the
 //    divider bounds, so dragging right (into the left pane) works correctly.
 
@@ -224,10 +236,10 @@ final class DividerNSView: NSView {
     // MARK: Drag — synchronous modal event tracking.
     //
     // window.nextEvent(matching:) blocks the run loop until the matching event
-    // arrives, completely bypassing the normal hit-test/dispatch chain. WKWebView
-    // never sees these events, so dragging in either direction works regardless
-    // of which view the cursor passes over. This is the same pattern AppKit
-    // itself uses for NSSlider, NSSplitView dividers, etc.
+    // arrives, completely bypassing the normal hit-test/dispatch chain. The
+    // terminal view never sees these events, so dragging in either direction works
+    // regardless of which view the cursor passes over. This is the same pattern
+    // AppKit itself uses for NSSlider, NSSplitView dividers, etc.
 
     override func mouseDown(with event: NSEvent) {
         guard isActive, let win = window else { return }
@@ -272,13 +284,38 @@ final class DividerNSView: NSView {
 // MARK: - Pane Header
 
 struct SplitPaneHeader: View {
+    @AppStorage(AppPreferences.languageKey) private var appLanguageRaw = AppPreferences.languageDefault
     @ObservedObject var session: TerminalSession
+    let showCloseButton: Bool
     let onClose: () -> Void
 
     @State private var isHoveringClose = false
+    @State private var isHoveringHeader = false
+    @State private var isHoveringCopy = false
+    @State private var showCopiedCheckmark = false
+
+    private var language: AppLanguage { AppLanguage(rawValue: appLanguageRaw) ?? .english }
+    private func t(_ en: String, _ zh: String) -> String { language == .chinese ? zh : en }
 
     private var displayText: String {
         session.currentDirectory ?? session.title
+    }
+
+    private var pathToCopy: String {
+        session.currentDirectoryRawPath ?? session.startingDirectory ?? NSHomeDirectory()
+    }
+
+    private func copyPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pathToCopy, forType: .string)
+        withAnimation(.easeInOut(duration: 0.12)) {
+            showCopiedCheckmark = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                showCopiedCheckmark = false
+            }
+        }
     }
 
     var body: some View {
@@ -293,21 +330,40 @@ struct SplitPaneHeader: View {
                 .truncationMode(.middle)
                 .foregroundColor(.secondary)
 
+            if isHoveringHeader || showCopiedCheckmark {
+                Button(action: copyPath) {
+                    Image(systemName: showCopiedCheckmark ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(showCopiedCheckmark ? .green : (isHoveringCopy ? .primary : .secondary))
+                        .frame(width: 16, height: 16)
+                        .background(isHoveringCopy ? Color.primary.opacity(0.08) : Color.clear)
+                        .cornerRadius(3)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isHoveringCopy = hovering
+                }
+                .help(showCopiedCheckmark ? t("Copied!", "已复制") : t("Copy Path", "复制路径"))
+                .transition(.opacity)
+            }
+
             Spacer(minLength: 0)
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(isHoveringClose ? .white : .secondary)
-                    .frame(width: 16, height: 16)
-                    .background(isHoveringClose ? Color.red : Color.clear)
-                    .cornerRadius(3)
+            if showCloseButton {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(isHoveringClose ? .white : .secondary)
+                        .frame(width: 16, height: 16)
+                        .background(isHoveringClose ? Color.red : Color.clear)
+                        .cornerRadius(3)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) { isHoveringClose = hovering }
+                }
+                .padding(.trailing, 6)
             }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.12)) { isHoveringClose = hovering }
-            }
-            .padding(.trailing, 6)
         }
         .padding(.leading, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -318,6 +374,11 @@ struct SplitPaneHeader: View {
                 .foregroundColor(Color(NSColor.separatorColor)),
             alignment: .bottom
         )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHoveringHeader = hovering
+            }
+        }
     }
 }
 
@@ -328,14 +389,33 @@ struct SingleTerminalView: View {
     let isVisible: Bool
     let isDark: Bool
     let fontSize: Int
+    @StateObject private var scrollState = TerminalScrollState()
+
+    private var terminalBgColor: Color {
+        if isDark {
+            return Color(NSColor(calibratedRed: 0.118, green: 0.118, blue: 0.129, alpha: 1))
+        } else {
+            return Color(NSColor(calibratedRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
+        }
+    }
 
     var body: some View {
-        TerminalWebView(
-            session: session,
-            onReady: nil,
-            isDark: isDark,
-            fontSize: fontSize
-        )
+        ZStack(alignment: .topTrailing) {
+            NativeTerminalView(
+                session: session,
+                isDark: isDark,
+                fontSize: fontSize,
+                isVisible: isVisible,
+                scrollState: scrollState
+            )
+            .padding(.leading, 8)
+            .padding(.trailing, 14)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            TerminalScrollbarView(state: scrollState, isDark: isDark)
+        }
+        .background(terminalBgColor)
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -345,8 +425,17 @@ struct SingleTerminalView: View {
 // MARK: - Preview
 
 #Preview {
-    let manager = TerminalManager()
-    return TerminalContainerView(manager: manager)
-        .environmentObject(PanelController())
-        .frame(width: 800, height: 600)
+    // NativeTerminalView uses Metal which is unavailable in Xcode Previews.
+    // Show a placeholder so the preview canvas stays usable.
+    ZStack {
+        Color(NSColor.windowBackgroundColor)
+        VStack(spacing: 12) {
+            Image(systemName: "terminal.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.secondary)
+            Text("Terminal (Metal — run app to preview)")
+                .foregroundColor(.secondary)
+        }
+    }
+    .frame(width: 800, height: 600)
 }

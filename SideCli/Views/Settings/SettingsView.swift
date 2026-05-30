@@ -158,29 +158,34 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                             .textCase(.uppercase)
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("SideCli")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(appVersionText)
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("SideCli").font(.system(size: 13, weight: .semibold))
+                                Spacer()
+                                Text(appVersionText).font(.system(size: 12)).foregroundColor(.secondary)
+                            }
                             HStack(spacing: 4) {
                                 Text(t("Website:", "官网："))
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 12)).foregroundColor(.secondary)
                                 Link("sidecli.com", destination: URL(string: "https://sidecli.com")!)
                                     .font(.system(size: 12))
                             }
                             Divider()
-                            Text(t("Third-party libraries", "第三方库"))
-                                .font(.system(size: 12, weight: .medium))
-                            Text("xterm.js (MIT License)")
-                                .font(.system(size: 12))
+                            HStack {
+                                Text("SwiftTerm (MIT License)")
+                                    .font(.system(size: 12)).foregroundColor(.secondary)
+                                Spacer()
+                                Link(t("View License", "查看许可"),
+                                     destination: URL(string: "https://github.com/migueldeicaza/SwiftTerm/blob/master/LICENSE")!)
+                                    .font(.system(size: 12))
+                            }
+                            Text(t("Terminal rendering powered by SwiftTerm.\nThanks to all contributors.",
+                                   "终端渲染由 SwiftTerm 驱动。\n感谢所有贡献者。"))
+                                .font(.system(size: 11))
                                 .foregroundColor(.secondary)
-                            Link("View xterm.js License", destination: URL(string: "https://github.com/xtermjs/xterm.js/blob/master/LICENSE")!)
-                                .font(.system(size: 12))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(10)
+                        .padding(.vertical, 7).padding(.horizontal, 10)
                         .background(Color(NSColor.controlBackgroundColor))
                         .cornerRadius(6)
                     }

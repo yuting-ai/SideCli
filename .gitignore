@@ -26,3 +26,4 @@ build/
 
 # Local tooling
 .claude/
+.antigravitycli/
