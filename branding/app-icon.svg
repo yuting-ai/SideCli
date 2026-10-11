@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- SideCli app icon, concept A "Edge Peek": a terminal panel snapped to the
+       icon's right edge (clipped by it), sliding in from the left.
+       macOS grid: 824×824 body at 100,100. The drop shadow is added on export. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B313B"/>
+      <stop offset="1" stop-color="#14171C"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#474E5B"/>
+      <stop offset="1" stop-color="#2A2F38"/>
+    </linearGradient>
+    <clipPath id="body">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <g clip-path="url(#body)">
+    <rect x="452" y="214" width="560" height="596" rx="56" fill="url(#panel)"/>
+    <rect x="454" y="216" width="556" height="592" rx="54" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="4"/>
+  </g>
+  <path d="M262 430 H392 M206 512 H392 M300 594 H392" stroke="#5A6170" stroke-width="22" stroke-linecap="round"/>
+  <path d="M552 420 L644 512 L552 604" fill="none" stroke="#FFB547" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="690" y="570" width="128" height="40" rx="20" fill="#FFB547"/>
+</svg>

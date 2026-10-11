@@ -209,14 +209,18 @@ struct ContentView: View {
 
     private var toolbarView: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 1) {
+            // Logo lockup: the app icon (same in both themes) + a monospaced wordmark
+            // that follows the theme (light text on dark, dark text on light).
+            HStack(spacing: 9) {
+                Image("LogoMark")
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
                 Text("SideCli")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                    .kerning(-0.3)
                     .foregroundColor(.primary)
-                Text(toolbarSubtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
@@ -367,15 +371,6 @@ struct ContentView: View {
                     .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
             )
             .padding(10)
-        }
-    }
-
-    private var toolbarSubtitle: String {
-        guard let active = manager.activeSession else { return t("No active session", "当前无活动会话") }
-        switch active.state {
-        case .idle:             return "\(active.title) · \(t("starting", "启动中"))"
-        case .running:          return "\(active.title) · \(t("active session", "活动会话"))"
-        case .finished(let c):  return "\(active.title) · \(t("exited with", "已退出，代码")) \(c)"
         }
     }
 

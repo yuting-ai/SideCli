@@ -72,10 +72,10 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Label {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(t("Menu bar app behavior", "菜单栏应用说明"))
+                        Text(t("Menu bar and Dock", "菜单栏与 Dock"))
                             .font(.system(size: 13, weight: .semibold))
-                        Text(t("SideCli runs as a menu bar app (not in Dock). You can quit it from the menu bar.",
-                               "SideCli 作为菜单栏应用运行（不会出现在 Dock 中）。你可以通过菜单栏退出。"))
+                        Text(t("SideCli shows in both the menu bar and the Dock. Click the Dock icon to bring the panel back; quit from the menu bar icon or the Dock.",
+                               "SideCli 同时显示在菜单栏和 Dock 中。点击 Dock 图标可以调出面板；可以从菜单栏图标或 Dock 退出。"))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

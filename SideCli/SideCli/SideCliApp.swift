@@ -16,11 +16,10 @@ struct SideCliApp: App {
         MenuBarExtra {
             MenuBarView(panelController: appDelegate.panelController)
         } label: {
+            // Drawn at its native 18 pt (the standard status-item size); scaling it
+            // down blurs the cut-out prompt. Template: macOS tints it to the menu bar.
             Image("MenuBarIcon")
                 .renderingMode(.template)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
         }
     }
 }
@@ -52,6 +51,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    /// Clicking the Dock icon brings the panel back, whether it was hidden with the
+    /// shortcut or parked off-screen by auto-hide.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController.showWindow()
+        return true
     }
 }
 
