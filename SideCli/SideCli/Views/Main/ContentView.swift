@@ -139,7 +139,7 @@ struct ContentView: View {
             manager.closeFocusedPane()
         }
         .onReceive(NotificationCenter.default.publisher(for: .saveSessionState)) { _ in
-            manager.saveSessionState()
+            manager.saveNow()
         }
         .onAppear {
             if isOnboardingVisible {

@@ -273,9 +273,11 @@ final class SplitWorkspaceNSView: NSView {
         while dividerViews.count < infos.count {
             let divider = SplitDividerView()
             divider.onDrag = { [weak self] info, point in self?.drag(info, to: point) }
-            divider.onDragEnd = {
+            divider.onDragEnd = { [weak self] in
                 // Let TUIs repaint at their final size, as after a window live resize.
                 NotificationCenter.default.post(name: .terminalLiveResizeDidEnd, object: nil)
+                // Ratio changes during a drag don't publish, so ask for a save here.
+                self?.manager.scheduleSave()
             }
             addSubview(divider)
             dividerViews.append(divider)

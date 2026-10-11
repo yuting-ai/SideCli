@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import AppKit
 import Combine
 import SwiftUI
 import TelemetryDeck
@@ -21,6 +22,13 @@ class TerminalManager: ObservableObject {
     /// Forwards the active tab's objectWillChange to manager, so views
     /// observing manager (e.g. ContentView) re-render when its panes change.
     private var activeTabCancellable: AnyCancellable?
+
+    // Autosave: the layout is written shortly after every change, not only on a
+    // clean quit — stopping from Xcode, force-quit or a crash skip that path.
+    private static let autosaveDelay: TimeInterval = 1.0
+    private var autosaveCancellables = Set<AnyCancellable>()
+    private var tabAutosaveCancellables = Set<AnyCancellable>()
+    private var pendingSave: DispatchWorkItem?
 
     // Keep the same UserDefaults key so existing saved state is preserved.
     private static let savedTabsKey = "sidecli.savedSessions"
@@ -73,6 +81,7 @@ class TerminalManager: ObservableObject {
         if !restoreTabs() {
             createTab()
         }
+        startAutosave()
     }
 
     // MARK: - Tab Lifecycle
@@ -205,6 +214,51 @@ class TerminalManager: ObservableObject {
     func toggleZoom(in tab: TerminalTab) {
         guard tab.isSplit else { return }
         tab.zoomedSessionID = tab.zoomedSessionID == nil ? tab.focusedSessionID : nil
+    }
+
+    // MARK: - Autosave
+
+    private func startAutosave() {
+        // Tab list changes (emitted before the change, with the new value).
+        $tabs
+            .sink { [weak self] tabs in
+                self?.observeTabsForAutosave(tabs)
+                self?.scheduleSave()
+            }
+            .store(in: &autosaveCancellables)
+        $activeTabId
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleSave() }
+            .store(in: &autosaveCancellables)
+        // Leaving the app is a good moment to persist right away.
+        NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)
+            .sink { [weak self] _ in self?.saveNow() }
+            .store(in: &autosaveCancellables)
+    }
+
+    /// Every tab forwards its panes, focus, zoom, title and sessions' cwd changes
+    /// through objectWillChange — any of those reschedules a save.
+    private func observeTabsForAutosave(_ tabs: [TerminalTab]) {
+        tabAutosaveCancellables.removeAll()
+        for tab in tabs {
+            tab.objectWillChange
+                .sink { [weak self] in self?.scheduleSave() }
+                .store(in: &tabAutosaveCancellables)
+        }
+    }
+
+    /// Debounced save; call after changes that don't publish (e.g. a divider drag).
+    func scheduleSave() {
+        pendingSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveSessionState() }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autosaveDelay, execute: work)
+    }
+
+    func saveNow() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        saveSessionState()
     }
 
     // MARK: - Persistence
