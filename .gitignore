@@ -27,3 +27,12 @@ SourcePackages/
 # Local tool state
 .antigravitycli/
 .claude/settings.local.json
+
+# Built products and legacy Xcode user files
+*.app
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+.claude/
