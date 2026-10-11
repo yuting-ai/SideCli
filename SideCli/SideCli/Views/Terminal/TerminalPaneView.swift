@@ -2,8 +2,9 @@
 //  TerminalPaneView.swift
 //  SideCli
 //
-//  One terminal pane: SwiftTerm view + custom scrollbar + a path header that
-//  slides in when the mouse reaches the top edge + focus ring / dim overlay.
+//  One terminal pane: SwiftTerm view + custom scrollbar + focus ring / dim overlay.
+//  The focused pane's path is shown in the panel's bottom status bar, not over
+//  the terminal, so nothing ever covers the first line.
 //
 //  Pane views are plain AppKit views kept in SplitWorkspaceNSView's registry,
 //  keyed by session id. Splitting, closing other panes or switching tabs only
@@ -16,20 +17,6 @@ import SwiftUI
 import Combine
 import SwiftTerm
 
-// MARK: - Shared chrome state (read by the SwiftUI header)
-
-final class PaneChromeState: ObservableObject {
-    @Published var isMultiPane = false
-    @Published var isZoomed = false
-}
-
-struct PaneActions {
-    var splitVertical: () -> Void
-    var splitHorizontal: () -> Void
-    var toggleZoom: () -> Void
-    var close: () -> Void
-}
-
 /// Overlay that never takes mouse events, so clicks reach the terminal below.
 private final class PassthroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -38,32 +25,26 @@ private final class PassthroughView: NSView {
 // MARK: - Pane view
 
 final class TerminalPaneView: NSView {
-    static let headerHeight: CGFloat = 26
     private static let scrollbarWidth: CGFloat = 14
 
     let session: TerminalSession
     let terminalView: EnhancedTerminalView
-    let chrome = PaneChromeState()
 
     private let controller: TerminalPaneController
     private let scrollState = TerminalScrollState()
     private let scrollbarHost: NSHostingView<TerminalScrollbarView>
-    private let headerHost: NSHostingView<PaneHeaderView>
     private let dimView = PassthroughView()
     private let focusRing = PassthroughView()
-    private var headerTracking: NSTrackingArea?
-    private var wantsHeader = false
     private var isDark: Bool
     private var fontSize: Int
 
-    init(session: TerminalSession, isDark: Bool, fontSize: Int, actions: PaneActions) {
+    init(session: TerminalSession, isDark: Bool, fontSize: Int) {
         self.session = session
         self.isDark = isDark
         self.fontSize = fontSize
         terminalView = EnhancedTerminalView(frame: .zero)
         controller = TerminalPaneController(session: session, scrollState: scrollState)
         scrollbarHost = NSHostingView(rootView: TerminalScrollbarView(state: scrollState, isDark: isDark))
-        headerHost = NSHostingView(rootView: PaneHeaderView(session: session, chrome: chrome, actions: actions))
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -88,14 +69,11 @@ final class TerminalPaneView: NSView {
         focusRing.layer?.borderWidth = 1.5
         dimView.isHidden = true
         focusRing.isHidden = true
-        headerHost.alphaValue = 0
-        headerHost.isHidden = true
 
         addSubview(terminalView)
         addSubview(scrollbarHost)
         addSubview(dimView)
         addSubview(focusRing)
-        addSubview(headerHost)
         applyAppearance()
     }
 
@@ -115,48 +93,13 @@ final class TerminalPaneView: NSView {
         scrollbarHost.frame = NSRect(x: b.width - Self.scrollbarWidth, y: 0, width: Self.scrollbarWidth, height: b.height)
         dimView.frame = b
         focusRing.frame = b
-        headerHost.frame = NSRect(x: 0, y: 0, width: b.width, height: Self.headerHeight)
     }
 
-    // MARK: Header (shown while the mouse is at the pane's top edge)
+    // MARK: Focus / dim
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let headerTracking { removeTrackingArea(headerTracking) }
-        let zone = NSRect(x: 0, y: 0, width: bounds.width, height: Self.headerHeight + 4)
-        let area = NSTrackingArea(rect: zone, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        headerTracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { setHeaderVisible(true) }
-    override func mouseExited(with event: NSEvent) { setHeaderVisible(false) }
-
-    private func setHeaderVisible(_ visible: Bool) {
-        wantsHeader = visible
-        if visible { headerHost.isHidden = false }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.12
-            headerHost.animator().alphaValue = visible ? 1 : 0
-        }, completionHandler: { [weak self] in
-            // Fully hide once faded out, so the invisible header can't eat clicks.
-            guard let self, !self.wantsHeader else { return }
-            self.headerHost.isHidden = true
-        })
-    }
-
-    // MARK: Focus / dim / chrome
-
-    func setChrome(focused: Bool, dimmed: Bool, multiPane: Bool, zoomed: Bool) {
+    func setChrome(focused: Bool, dimmed: Bool) {
         focusRing.isHidden = !focused
         dimView.isHidden = !dimmed
-        if chrome.isMultiPane != multiPane || chrome.isZoomed != zoomed {
-            // Called from layout(); publish outside the current view update.
-            DispatchQueue.main.async { [chrome] in
-                if chrome.isMultiPane != multiPane { chrome.isMultiPane = multiPane }
-                if chrome.isZoomed != zoomed { chrome.isZoomed = zoomed }
-            }
-        }
     }
 
     // MARK: Appearance
@@ -305,110 +248,5 @@ final class TerminalPaneController: NSObject, TerminalViewDelegate {
         guard let text = String(data: content, encoding: .utf8) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-    }
-}
-
-// MARK: - Pane header (SwiftUI)
-
-struct PaneHeaderView: View {
-    @AppStorage(AppPreferences.languageKey) private var appLanguageRaw = AppPreferences.languageDefault
-    @ObservedObject var session: TerminalSession
-    @ObservedObject var chrome: PaneChromeState
-    let actions: PaneActions
-
-    @State private var hovered: String?
-    @State private var showCopiedCheckmark = false
-
-    private var language: AppLanguage { AppLanguage(rawValue: appLanguageRaw) ?? .english }
-    private func t(_ en: String, _ zh: String) -> String { language == .chinese ? zh : en }
-
-    private var displayText: String { session.currentDirectory ?? session.title }
-    private var pathToCopy: String {
-        session.currentDirectoryRawPath ?? session.startingDirectory ?? NSHomeDirectory()
-    }
-
-    private func copyPath() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(pathToCopy, forType: .string)
-        withAnimation(.easeInOut(duration: 0.12)) { showCopiedCheckmark = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            withAnimation(.easeInOut(duration: 0.12)) { showCopiedCheckmark = false }
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "folder")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-
-            Text(displayText)
-                .font(.system(size: 11))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundColor(.secondary)
-
-            Button(action: copyPath) {
-                Image(systemName: showCopiedCheckmark ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(showCopiedCheckmark ? .green : (hovered == "copy" ? .primary : .secondary))
-                    .frame(width: 18, height: 18)
-                    .background(hovered == "copy" ? Color.primary.opacity(0.08) : Color.clear)
-                    .cornerRadius(4)
-            }
-            .buttonStyle(.plain)
-            .onHover { setHovered("copy", $0) }
-            .help(showCopiedCheckmark ? t("Copied!", "已复制") : t("Copy Path", "复制路径"))
-
-            Spacer(minLength: 0)
-
-            glyphButton("split-v", .splitVertical, t("Split Top / Bottom", "上下分屏"), actions.splitVertical)
-            glyphButton("split-h", .splitHorizontal, t("Split Left / Right", "左右分屏"), actions.splitHorizontal)
-            if chrome.isMultiPane {
-                glyphButton("zoom", .zoom,
-                            chrome.isZoomed ? t("Restore Layout (⌘⇧↩)", "还原布局（⌘⇧↩）") : t("Zoom Pane (⌘⇧↩)", "放大窗格（⌘⇧↩）"),
-                            actions.toggleZoom)
-            }
-            Button(action: actions.close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(hovered == "close" ? .white : .secondary)
-                    .frame(width: 18, height: 18)
-                    .background(hovered == "close" ? Color.red : Color.clear)
-                    .cornerRadius(4)
-            }
-            .buttonStyle(.plain)
-            .onHover { setHovered("close", $0) }
-            .help(chrome.isMultiPane ? t("Close Pane (⌘W)", "关闭窗格（⌘W）") : t("Close Tab (⌘W)", "关闭标签页（⌘W）"))
-        }
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Opaque: it sits on top of the terminal's first line.
-        .background(Color(NSColor.controlBackgroundColor))
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(NSColor.separatorColor)),
-            alignment: .bottom
-        )
-    }
-
-    /// Exit events can arrive after the next button's enter; only clear our own id.
-    private func setHovered(_ id: String, _ isHovering: Bool) {
-        if isHovering { hovered = id } else if hovered == id { hovered = nil }
-    }
-
-    private func glyphButton(_ id: String, _ kind: PaneGlyphKind, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            PaneGlyph(kind: kind, size: 12)
-                .foregroundColor(hovered == id ? .primary : .secondary)
-                .frame(width: 18, height: 18)
-                .background(hovered == id ? Color.primary.opacity(0.08) : Color.clear)
-                .cornerRadius(4)
-        }
-        .buttonStyle(.plain)
-        .onHover { setHovered(id, $0) }
-        .help(help)
     }
 }

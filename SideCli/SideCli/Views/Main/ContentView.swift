@@ -94,8 +94,13 @@ struct ContentView: View {
                 .overlay(alignment: .top) { overflowBanner }
                 .overlay(alignment: .bottom) { toastView }
                 .animation(.easeOut(duration: 0.18), value: workspace.toast)
-                BottomResizeHandle()
-                    .captureOnboardingTarget(.resize)
+                // Path of the focused pane. Lives below the terminals so it never
+                // covers output; the resize strip sits on its bottom edge.
+                statusBar
+                    .overlay(alignment: .bottom) {
+                        BottomResizeHandle()
+                            .captureOnboardingTarget(.resize)
+                    }
             }
             .background(Color(NSColor.windowBackgroundColor))
             .ignoresSafeArea(.container, edges: .bottom)
@@ -316,6 +321,72 @@ struct ContentView: View {
         .help(help)
     }
 
+    // MARK: - Status bar
+
+    @State private var showCopiedPath = false
+
+    private var statusBar: some View {
+        let session = manager.activeTab?.focusedSession
+        let displayPath = session.map { $0.currentDirectory ?? $0.title } ?? ""
+        let rawPath = session.flatMap { $0.currentDirectoryRawPath ?? $0.startingDirectory } ?? NSHomeDirectory()
+        return HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+            Text(displayPath)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(rawPath)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(rawPath, forType: .string)
+                withAnimation(.easeInOut(duration: 0.12)) { showCopiedPath = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    withAnimation(.easeInOut(duration: 0.12)) { showCopiedPath = false }
+                }
+            } label: {
+                Image(systemName: showCopiedPath ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(showCopiedPath ? .green : .secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(showCopiedPath ? t("Copied!", "已复制") : t("Copy Path", "复制路径"))
+
+            Spacer(minLength: 8)
+
+            if activeTabIsZoomed {
+                Text(t("Zoomed", "已放大"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+            }
+            if activeTabIsSplit {
+                Button(action: { workspace.closeFocusedPane() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(t("Close Pane (⌘W)", "关闭窗格（⌘W）"))
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.bottom, 2)
+        .frame(height: 26)
+        .frame(maxWidth: .infinity)
+        .background(Color(NSColor.controlBackgroundColor))
+        .overlay(Rectangle().frame(height: 1).foregroundColor(Color(NSColor.separatorColor)), alignment: .top)
+    }
+
     // MARK: - Workspace feedback
 
     @ViewBuilder
@@ -400,7 +471,7 @@ struct ContentView: View {
 
 // MARK: - Bottom Resize Handle
 
-/// 8 pt bottom resize strip; drag down to increase height, drag up to decrease.
+/// 5 pt resize strip along the status bar's bottom edge; drag down to grow, up to shrink.
 private struct BottomResizeHandle: View {
     @EnvironmentObject private var panelController: PanelController
     @State private var isHovering = false
@@ -411,7 +482,7 @@ private struct BottomResizeHandle: View {
         Rectangle()
             .fill(Color.clear)
             .frame(maxWidth: .infinity)
-            .frame(height: 8)
+            .frame(height: 5)
             .overlay(
                 Rectangle()
                     .fill(Color.white.opacity(isHovering || isDragging ? 0.22 : 0))

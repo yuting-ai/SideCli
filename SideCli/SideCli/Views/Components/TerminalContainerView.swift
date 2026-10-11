@@ -183,8 +183,7 @@ final class SplitWorkspaceNSView: NSView {
         }
         for tab in manager.tabs {
             for session in tab.sessions where panes[session.id] == nil {
-                let pane = TerminalPaneView(session: session, isDark: isDark, fontSize: fontSize,
-                                            actions: actions(for: session.id))
+                let pane = TerminalPaneView(session: session, isDark: isDark, fontSize: fontSize)
                 panes[session.id] = pane
                 // Below the dividers, which must stay on top to receive drags.
                 addSubview(pane, positioned: .below, relativeTo: dividerViews.first)
@@ -192,26 +191,6 @@ final class SplitWorkspaceNSView: NSView {
         }
         needsLayout = true
         syncPanelWidth()
-    }
-
-    private func tab(containing sessionID: UUID) -> TerminalTab? {
-        manager.tabs.first { $0.root.contains(sessionID) }
-    }
-
-    private func actions(for sessionID: UUID) -> PaneActions {
-        PaneActions(
-            splitVertical: { [weak self] in self?.split(.axis(.vertical), at: sessionID) },
-            splitHorizontal: { [weak self] in self?.split(.axis(.horizontal), at: sessionID) },
-            toggleZoom: { [weak self] in
-                guard let self, let tab = self.tab(containing: sessionID) else { return }
-                tab.focus(sessionID)
-                self.manager.toggleZoom(in: tab)
-            },
-            close: { [weak self] in
-                guard let self, let tab = self.tab(containing: sessionID) else { return }
-                self.manager.closePane(sessionID, in: tab)
-            }
-        )
     }
 
     /// The panel size is shared by all tabs. Report whether any tab still has a
@@ -255,8 +234,7 @@ final class SplitWorkspaceNSView: NSView {
                 if pane.isHidden == visible { pane.isHidden = !visible }
                 if isActive {
                     let focused = session.id == tab.focusedSessionID
-                    pane.setChrome(focused: showsSeveral && focused, dimmed: showsSeveral && !focused,
-                                   multiPane: tab.isSplit, zoomed: zoomID != nil)
+                    pane.setChrome(focused: showsSeveral && focused, dimmed: showsSeveral && !focused)
                 }
             }
             if isActive {
