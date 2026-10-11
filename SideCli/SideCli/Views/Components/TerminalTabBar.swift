@@ -79,7 +79,7 @@ struct TerminalTabBar: View {
                 withAnimation(.easeInOut(duration: 0.15)) { isHoveringNewButton = hovering }
             }
             .padding(.trailing, 8)
-            .help("New Terminal (⌘T)")
+            .help(AppPreferences.language() == .chinese ? "新建标签页（⌘T）" : "New Tab (⌘T)")
 
             Spacer()
         }
@@ -287,9 +287,9 @@ struct TerminalTabItem: View {
     private var helpText: String {
         let pathLine = session.currentDirectory.map { "\n\($0)" } ?? ""
         switch session.state {
-        case .idle:               return "\(tab.title) - waiting to start\(pathLine)"
-        case .running:            return "\(tab.title) - running\(pathLine)"
-        case .finished(let code): return "\(tab.title) - exited with \(code)\(pathLine)"
+        case .idle:               return "\(tab.title) - \(t("waiting to start", "等待启动"))\(pathLine)"
+        case .running:            return "\(tab.title) - \(t("running", "运行中"))\(pathLine)"
+        case .finished(let code): return "\(tab.title) - \(t("exited with", "已退出，代码")) \(code)\(pathLine)"
         }
     }
 

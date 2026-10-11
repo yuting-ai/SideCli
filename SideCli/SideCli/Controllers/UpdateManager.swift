@@ -1,6 +1,11 @@
 import Foundation
 import AppKit
 
+/// Localized string for the language chosen in Settings (read at display time).
+private func t(_ en: String, _ zh: String) -> String {
+    AppPreferences.language() == .chinese ? zh : en
+}
+
 final class UpdateManager {
     static let shared = UpdateManager()
 
@@ -60,8 +65,9 @@ final class UpdateManager {
 
                 guard isVersion(release.version, newerThan: currentVersion) else {
                     await showInfoAlert(
-                        title: "You're up to date",
-                        message: "Current version: \(currentVersion)\nLatest version: \(release.version)"
+                        title: t("You're up to date", "已是最新版本"),
+                        message: t("Current version: \(currentVersion)\nLatest version: \(release.version)",
+                                   "当前版本：\(currentVersion)\n最新版本：\(release.version)")
                     )
                     return
                 }
@@ -69,8 +75,9 @@ final class UpdateManager {
                 await runUpdateFlow(release: release)
             } catch {
                 await showErrorAlert(
-                    title: "Update check failed",
-                    message: "Unable to check for updates.\n\n\(error.localizedDescription)",
+                    title: t("Update check failed", "检查更新失败"),
+                    message: t("Unable to check for updates.\n\n\(error.localizedDescription)",
+                               "无法检查更新。\n\n\(error.localizedDescription)"),
                     fallbackURL: releasePageURL
                 )
             }
@@ -87,8 +94,9 @@ final class UpdateManager {
             // The user pressed Cancel in the progress window — not an error.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
             await showErrorAlert(
-                title: "Update download failed",
-                message: "Version \(release.version) could not be downloaded.\n\n\(error.localizedDescription)",
+                title: t("Update download failed", "更新下载失败"),
+                message: t("Version \(release.version) could not be downloaded.\n\n\(error.localizedDescription)",
+                           "版本 \(release.version) 下载失败。\n\n\(error.localizedDescription)"),
                 fallbackURL: release.htmlURL
             )
         }
@@ -111,8 +119,9 @@ final class UpdateManager {
             NSWorkspace.shared.open(localFile)
         } else {
             await showInfoAlert(
-                title: "New version available",
-                message: "Version \(release.version) is available.\nNo direct install asset was found, opening release page."
+                title: t("New version available", "有新版本"),
+                message: t("Version \(release.version) is available.\nNo direct install asset was found, opening release page.",
+                           "版本 \(release.version) 已发布。\n没有找到可直接安装的文件，将打开发布页面。")
             )
             NSWorkspace.shared.open(release.htmlURL)
         }
@@ -206,10 +215,11 @@ final class UpdateManager {
         NSApp.activate()
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Update available"
-        alert.informativeText = "A newer version (\(version)) is available.\nDo you want to download it now?"
-        alert.addButton(withTitle: "Download")
-        alert.addButton(withTitle: "Not Now")
+        alert.messageText = t("Update available", "有可用更新")
+        alert.informativeText = t("A newer version (\(version)) is available.\nDo you want to download it now?",
+                                  "新版本（\(version)）已发布。\n要现在下载吗？")
+        alert.addButton(withTitle: t("Download", "下载"))
+        alert.addButton(withTitle: t("Not Now", "以后再说"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -220,7 +230,7 @@ final class UpdateManager {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: t("OK", "好"))
         alert.runModal()
     }
 
@@ -231,8 +241,8 @@ final class UpdateManager {
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "Open Release Page")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: t("Open Release Page", "打开发布页面"))
+        alert.addButton(withTitle: t("Cancel", "取消"))
         if alert.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(fallbackURL)
         }
@@ -256,16 +266,16 @@ private final class DownloadProgressWindow: NSObject {
                         defer: false)
         super.init()
 
-        panel.title = "Downloading Update"
+        panel.title = t("Downloading Update", "正在下载更新")
         panel.level = .floating
         panel.isReleasedWhenClosed = false
 
-        let label = NSTextField(labelWithString: "Downloading SideCli \(version)…")
+        let label = NSTextField(labelWithString: t("Downloading SideCli \(version)…", "正在下载 SideCli \(version)…"))
         let bar = NSProgressIndicator()
         bar.style = .bar
         bar.isIndeterminate = true
         bar.startAnimation(nil)
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelPressed))
+        let cancel = NSButton(title: t("Cancel", "取消"), target: self, action: #selector(cancelPressed))
         cancel.keyEquivalent = "\u{1b}"
 
         let stack = NSStackView(views: [label, bar, cancel])
@@ -345,9 +355,9 @@ private enum UpdateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "GitHub returned an unexpected response."
+            return t("GitHub returned an unexpected response.", "GitHub 返回了无法识别的响应。")
         case .downloadFailed:
-            return "The update file could not be downloaded."
+            return t("The update file could not be downloaded.", "无法下载更新文件。")
         }
     }
 }

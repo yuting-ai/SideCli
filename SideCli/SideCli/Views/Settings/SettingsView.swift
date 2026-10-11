@@ -26,7 +26,7 @@ struct SettingsView: View {
     private var language: AppLanguage { AppLanguage(rawValue: displayLanguageRaw) ?? .english }
     private var appVersionText: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return short.map { "Version \($0)" } ?? "Version unavailable"
+        return short.map { t("Version \($0)", "版本 \($0)") } ?? t("Version unavailable", "版本未知")
     }
 
     private func t(_ en: String, _ zh: String) -> String {
@@ -171,7 +171,7 @@ struct SettingsView: View {
                             }
                             Divider()
                             HStack {
-                                Text("SwiftTerm (MIT License)")
+                                Text(t("SwiftTerm (MIT License)", "SwiftTerm（MIT 许可证）"))
                                     .font(.system(size: 12)).foregroundColor(.secondary)
                                 Spacer()
                                 Link(t("View License", "查看许可"),
@@ -295,7 +295,7 @@ class ShortcutRecorderNSView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let label = isRecording
-            ? "Press keys…"
+            ? (AppPreferences.language() == .chinese ? "请按下组合键…" : "Press keys…")
             : shortcutDisplayString(keyCode: keyCode, modifiers: modifiers)
 
         let bg = isRecording

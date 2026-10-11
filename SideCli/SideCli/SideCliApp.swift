@@ -54,16 +54,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuBarView: View {
     @ObservedObject var panelController: PanelController
+    @AppStorage(AppPreferences.languageKey) private var appLanguageRaw = AppPreferences.languageDefault
+    private func t(_ en: String, _ zh: String) -> String {
+        (AppLanguage(rawValue: appLanguageRaw) ?? .english) == .chinese ? zh : en
+    }
 
     var body: some View {
         Group {
-            Button("Check for Updates...") {
+            Button(t("Check for Updates…", "检查更新…")) {
                 UpdateManager.shared.checkForUpdatesInteractive()
             }
 
             Divider()
 
-            Button("Quit SideCli") {
+            Button(t("Quit SideCli", "退出 SideCli")) {
                 NSApp.terminate(nil)
             }
             .keyboardShortcut("q", modifiers: [.command])
