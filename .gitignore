@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode — per-user state and build output
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+build/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager (Package.resolved stays tracked to pin SwiftTerm)
+.build/
+.swiftpm/
+SourcePackages/
+
+# Release artifacts
+*.dmg
+
+# Local tool state
+.antigravitycli/
+.claude/settings.local.json
