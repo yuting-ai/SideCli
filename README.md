@@ -36,10 +36,6 @@ SideCli is a lightweight macOS terminal that lives on the edge of your screen:
 | Font size | `⌘=` / `⌘-` |
 | Show / hide panel (default, configurable) | ``⌘` `` |
 
-## Demo
-
-[Watch demo on YouTube](https://www.youtube.com/watch?v=Bg47zOdqfzs)
-
 ## Requirements
 
 - macOS 14.6 or later (Apple Silicon or Intel)
