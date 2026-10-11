@@ -7,6 +7,11 @@ SideCli is a lightweight macOS terminal that lives on the edge of your screen:
 - Native terminal rendering powered by SwiftTerm
 - Shows in the menu bar and the Dock
 
+<p align="center">
+  <img src="docs/screenshots/sidecli-dark.png" alt="SideCli in the dark theme: one tab split into three panes running git log and ls, with a second tab open" width="49%">
+  <img src="docs/screenshots/sidecli-light.png" alt="SideCli in the light theme: a tab split top and bottom, with the focused pane outlined" width="49%">
+</p>
+
 ## Features
 
 - Tabs, each with its own split panes: split top/bottom or left/right and nest freely
