@@ -26,6 +26,9 @@ private final class PassthroughView: NSView {
 
 final class TerminalPaneView: NSView {
     private static let scrollbarWidth: CGFloat = 14
+    /// Close button size; it sits at the top of the scrollbar gutter, never over text.
+    private static let closeButtonSize: CGFloat = 14
+    private static let closeButtonInset: CGFloat = 5
 
     let session: TerminalSession
     let terminalView: EnhancedTerminalView
@@ -35,6 +38,12 @@ final class TerminalPaneView: NSView {
     private let scrollbarHost: NSHostingView<TerminalScrollbarView>
     private let dimView = PassthroughView()
     private let focusRing = PassthroughView()
+    private let closeButton = PaneCloseButton()
+    /// Set by the workspace; closes this pane.
+    var onClose: (() -> Void)? {
+        get { closeButton.onClick }
+        set { closeButton.onClick = newValue }
+    }
     private var isDark: Bool
     private var fontSize: Int
 
@@ -74,6 +83,8 @@ final class TerminalPaneView: NSView {
         addSubview(scrollbarHost)
         addSubview(dimView)
         addSubview(focusRing)
+        closeButton.isHidden = true
+        addSubview(closeButton)   // on top of the dim overlay and focus ring
         applyAppearance()
     }
 
@@ -90,16 +101,28 @@ final class TerminalPaneView: NSView {
             width: max(0, b.width - PaneMetrics.insetLeading - PaneMetrics.insetTrailing),
             height: max(0, b.height - PaneMetrics.insetTop - PaneMetrics.insetBottom)
         )
-        scrollbarHost.frame = NSRect(x: b.width - Self.scrollbarWidth, y: 0, width: Self.scrollbarWidth, height: b.height)
+        // In a split the close button takes the top of the scrollbar gutter, so the
+        // scrollbar starts just below it.
+        let gutterTop = closeButton.isHidden ? 0 : Self.closeButtonInset + Self.closeButtonSize + 3
+        scrollbarHost.frame = NSRect(x: b.width - Self.scrollbarWidth, y: gutterTop,
+                                     width: Self.scrollbarWidth, height: max(0, b.height - gutterTop))
+        closeButton.frame = NSRect(x: b.width - Self.scrollbarWidth + (Self.scrollbarWidth - Self.closeButtonSize) / 2,
+                                   y: Self.closeButtonInset,
+                                   width: Self.closeButtonSize, height: Self.closeButtonSize)
         dimView.frame = b
         focusRing.frame = b
     }
 
     // MARK: Focus / dim
 
-    func setChrome(focused: Bool, dimmed: Bool) {
+    /// - Parameter closable: the tab is split, so this pane shows its close button.
+    func setChrome(focused: Bool, dimmed: Bool, closable: Bool) {
         focusRing.isHidden = !focused
         dimView.isHidden = !dimmed
+        if closeButton.isHidden == closable {
+            closeButton.isHidden = !closable
+            needsLayout = true
+        }
     }
 
     // MARK: Appearance
@@ -134,6 +157,7 @@ final class TerminalPaneView: NSView {
 
     /// Detach from the session before the view goes away (the session may outlive it briefly).
     func teardown() {
+        onClose = nil
         session.clearDataReceiver(owner: controller)
     }
 }
@@ -248,5 +272,65 @@ final class TerminalPaneController: NSObject, TerminalViewDelegate {
         guard let text = String(data: content, encoding: .utf8) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Close button
+
+/// Small × at the top of a pane's scrollbar gutter (split tabs only). Faint at rest,
+/// a red circle on hover — the same treatment as the tab bar's close buttons.
+final class PaneCloseButton: NSView {
+    var onClick: (() -> Void)?
+    private var isHovering = false { didSet { needsDisplay = true } }
+    private var tracking: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        toolTip = AppPreferences.language() == .chinese ? "关闭窗格（⌘W）" : "Close Pane (⌘W)"
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(toolTip)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        // Refresh in case the language changed since the button was created.
+        toolTip = AppPreferences.language() == .chinese ? "关闭窗格（⌘W）" : "Close Pane (⌘W)"
+    }
+    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isHovering {
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: bounds).fill()
+        }
+        let inset = bounds.width * 0.32
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: inset, y: inset))
+        path.line(to: NSPoint(x: bounds.width - inset, y: bounds.height - inset))
+        path.move(to: NSPoint(x: bounds.width - inset, y: inset))
+        path.line(to: NSPoint(x: inset, y: bounds.height - inset))
+        path.lineWidth = 1.4
+        path.lineCapStyle = .round
+        (isHovering ? NSColor.white : NSColor.secondaryLabelColor.withAlphaComponent(0.7)).setStroke()
+        path.stroke()
     }
 }

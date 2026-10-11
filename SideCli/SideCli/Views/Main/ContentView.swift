@@ -366,17 +366,6 @@ struct ContentView: View {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(Color.accentColor.opacity(0.12)))
             }
-            if activeTabIsSplit {
-                Button(action: { workspace.closeFocusedPane() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(t("Close Pane (⌘W)", "关闭窗格（⌘W）"))
-            }
         }
         .padding(.leading, 10)
         .padding(.trailing, 8)

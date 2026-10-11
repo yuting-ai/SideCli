@@ -184,6 +184,11 @@ final class SplitWorkspaceNSView: NSView {
         for tab in manager.tabs {
             for session in tab.sessions where panes[session.id] == nil {
                 let pane = TerminalPaneView(session: session, isDark: isDark, fontSize: fontSize)
+                let sessionID = session.id
+                pane.onClose = { [weak self] in
+                    guard let self, let tab = self.manager.tabs.first(where: { $0.root.contains(sessionID) }) else { return }
+                    self.manager.closePane(sessionID, in: tab)
+                }
                 panes[session.id] = pane
                 // Below the dividers, which must stay on top to receive drags.
                 addSubview(pane, positioned: .below, relativeTo: dividerViews.first)
@@ -234,7 +239,8 @@ final class SplitWorkspaceNSView: NSView {
                 if pane.isHidden == visible { pane.isHidden = !visible }
                 if isActive {
                     let focused = session.id == tab.focusedSessionID
-                    pane.setChrome(focused: showsSeveral && focused, dimmed: showsSeveral && !focused)
+                    pane.setChrome(focused: showsSeveral && focused, dimmed: showsSeveral && !focused,
+                                   closable: tab.isSplit)
                 }
             }
             if isActive {
