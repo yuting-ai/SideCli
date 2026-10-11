@@ -121,23 +121,6 @@ struct WelcomeView: View {
                         .frame(width: 28)
                 }
 
-                Label {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(t("Anonymous analytics", "匿名使用统计"))
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(t("SideCli collects anonymous usage data (app launches and session count) via TelemetryDeck to understand how many people use the app. No personal data or file contents are ever collected.",
-                               "SideCli 通过 TelemetryDeck 收集匿名使用数据（启动次数与会话数），用于了解用户规模。不收集任何个人信息或文件内容。"))
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } icon: {
-                    Image(systemName: "chart.bar")
-                        .font(.system(size: 20))
-                        .foregroundColor(.purple)
-                        .frame(width: 28)
-                }
-
             }
             .padding(.horizontal, 32)
 

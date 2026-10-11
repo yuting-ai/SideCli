@@ -8,8 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		0E3FFA442FCA7006008BA8FB /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 0E3FFA432FCA7006008BA8FB /* SwiftTerm */; };
-		0E8676E42FAC8B9800DD8F4C /* TelemetryClient in Frameworks */ = {isa = PBXBuildFile; productRef = 0E8676E32FAC8B9800DD8F4C /* TelemetryClient */; };
-		0E8676E62FAC8B9800DD8F4C /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = 0E8676E52FAC8B9800DD8F4C /* TelemetryDeck */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,8 +28,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0E8676E42FAC8B9800DD8F4C /* TelemetryClient in Frameworks */,
-				0E8676E62FAC8B9800DD8F4C /* TelemetryDeck in Frameworks */,
 				0E3FFA442FCA7006008BA8FB /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -84,8 +80,6 @@
 			);
 			name = SideCli;
 			packageProductDependencies = (
-				0E8676E32FAC8B9800DD8F4C /* TelemetryClient */,
-				0E8676E52FAC8B9800DD8F4C /* TelemetryDeck */,
 				0E3FFA432FCA7006008BA8FB /* SwiftTerm */,
 			);
 			productName = SideCli;
@@ -117,7 +111,6 @@
 			mainGroup = 0E78824A2F9F10850030B178;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				0E8676E22FAC8B9800DD8F4C /* XCRemoteSwiftPackageReference "SwiftSDK" */,
 				0E3FFA422FCA7006008BA8FB /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -377,14 +370,6 @@
 				minimumVersion = 1.5.0;
 			};
 		};
-		0E8676E22FAC8B9800DD8F4C /* XCRemoteSwiftPackageReference "SwiftSDK" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/TelemetryDeck/SwiftSDK";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.12.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -392,16 +377,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0E3FFA422FCA7006008BA8FB /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
-		};
-		0E8676E32FAC8B9800DD8F4C /* TelemetryClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0E8676E22FAC8B9800DD8F4C /* XCRemoteSwiftPackageReference "SwiftSDK" */;
-			productName = TelemetryClient;
-		};
-		0E8676E52FAC8B9800DD8F4C /* TelemetryDeck */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0E8676E22FAC8B9800DD8F4C /* XCRemoteSwiftPackageReference "SwiftSDK" */;
-			productName = TelemetryDeck;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

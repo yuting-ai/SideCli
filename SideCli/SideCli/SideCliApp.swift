@@ -5,7 +5,6 @@
 
 import SwiftUI
 import AppKit
-import TelemetryDeck
 
 @main
 struct SideCliApp: App {
@@ -28,24 +27,14 @@ struct SideCliApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     let panelController = PanelController()
-    private var launchTime = Date()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppPreferences.bootstrapLanguageIfNeeded()
-        TelemetryDeck.initialize(config: .init(appID: "CBD09DBE-EAD7-4AEA-8A51-A8BE33D29B08"))
-        TelemetryDeck.signal("app.launched", parameters: [
-            "macOSVersion": ProcessInfo.processInfo.operatingSystemVersionString
-        ])
-        launchTime = Date()
         panelController.setup()
         UpdateManager.shared.startPeriodicChecks()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        let seconds = Int(Date().timeIntervalSince(launchTime))
-        TelemetryDeck.signal("app.terminated", parameters: [
-            "sessionDurationSeconds": "\(seconds)"
-        ])
         panelController.saveSessionState()
     }
 

@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "swiftsdk",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/TelemetryDeck/SwiftSDK",
-      "state" : {
-        "revision" : "d41d6e86265dc182ba4474f9ef53ecddbbe052b8",
-        "version" : "2.12.0"
-      }
-    },
-    {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm",

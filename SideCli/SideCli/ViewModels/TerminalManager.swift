@@ -11,7 +11,6 @@ import Foundation
 import AppKit
 import Combine
 import SwiftUI
-import TelemetryDeck
 
 class TerminalManager: ObservableObject {
     @Published var tabs: [TerminalTab] = []
@@ -95,8 +94,6 @@ class TerminalManager: ObservableObject {
 
         tabs.append(tab)
         activateTab(tab)
-
-        TelemetryDeck.signal("tab.created", parameters: ["totalTabs": "\(tabs.count)"])
         return tab
     }
 
