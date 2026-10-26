@@ -2,7 +2,8 @@
 //  TerminalPaneView.swift
 //  SideCli
 //
-//  One terminal pane: SwiftTerm view + custom scrollbar + focus ring / dim overlay.
+//  One terminal pane: SwiftTerm view + custom scrollbar + dim overlay. The focused
+//  pane is told apart by dimming the others, not by a border.
 //  The focused pane's path is shown in the panel's bottom status bar, not over
 //  the terminal, so nothing ever covers the first line.
 //
@@ -37,7 +38,6 @@ final class TerminalPaneView: NSView {
     private let scrollState = TerminalScrollState()
     private let scrollbarHost: NSHostingView<TerminalScrollbarView>
     private let dimView = PassthroughView()
-    private let focusRing = PassthroughView()
     private let closeButton = PaneCloseButton()
     /// Set by the workspace; closes this pane.
     var onClose: (() -> Void)? {
@@ -74,17 +74,13 @@ final class TerminalPaneView: NSView {
         }
 
         dimView.wantsLayer = true
-        focusRing.wantsLayer = true
-        focusRing.layer?.borderWidth = 1.5
         dimView.isHidden = true
-        focusRing.isHidden = true
 
         addSubview(terminalView)
         addSubview(scrollbarHost)
         addSubview(dimView)
-        addSubview(focusRing)
         closeButton.isHidden = true
-        addSubview(closeButton)   // on top of the dim overlay and focus ring
+        addSubview(closeButton)   // on top of the dim overlay
         applyAppearance()
     }
 
@@ -110,14 +106,12 @@ final class TerminalPaneView: NSView {
                                    y: Self.closeButtonInset,
                                    width: Self.closeButtonSize, height: Self.closeButtonSize)
         dimView.frame = b
-        focusRing.frame = b
     }
 
     // MARK: Focus / dim
 
     /// - Parameter closable: the tab is split, so this pane shows its close button.
-    func setChrome(focused: Bool, dimmed: Bool, closable: Bool) {
-        focusRing.isHidden = !focused
+    func setChrome(dimmed: Bool, closable: Bool) {
         dimView.isHidden = !dimmed
         if closeButton.isHidden == closable {
             closeButton.isHidden = !closable
@@ -152,7 +146,6 @@ final class TerminalPaneView: NSView {
             : NSColor(calibratedRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)
         layer?.backgroundColor = background.cgColor
         dimView.layer?.backgroundColor = background.withAlphaComponent(0.42).cgColor
-        focusRing.layer?.borderColor = NSColor.controlAccentColor.cgColor
     }
 
     /// Detach from the session before the view goes away (the session may outlive it briefly).

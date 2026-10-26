@@ -239,8 +239,7 @@ final class SplitWorkspaceNSView: NSView {
                 if pane.isHidden == visible { pane.isHidden = !visible }
                 if isActive {
                     let focused = session.id == tab.focusedSessionID
-                    pane.setChrome(focused: showsSeveral && focused, dimmed: showsSeveral && !focused,
-                                   closable: tab.isSplit)
+                    pane.setChrome(dimmed: showsSeveral && !focused, closable: tab.isSplit)
                 }
             }
             if isActive {
