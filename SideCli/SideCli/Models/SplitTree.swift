@@ -111,6 +111,9 @@ struct PaneMetrics: Equatable {
     // Terminal insets inside a pane (trailing leaves room for the scrollbar).
     static let insetLeading: CGFloat = 8
     static let insetTrailing: CGFloat = 14
+    /// Trailing inset while a full-screen program (alternate screen) runs: our
+    /// scrollbar is hidden then, so the program gets the gutter.
+    static let insetTrailingFullScreen: CGFloat = 4
     static let insetTop: CGFloat = 4
     static let insetBottom: CGFloat = 4
     static let dividerThickness: CGFloat = 6

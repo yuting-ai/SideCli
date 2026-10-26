@@ -163,6 +163,14 @@ class EnhancedTerminalView: TerminalView {
                       height: ceil(ceil(font.ascender - font.descender + font.leading) * scale) / scale)
     }
 
+    /// Called when a program enters or leaves the alternate screen.
+    var onBufferSwitch: (() -> Void)?
+
+    override func bufferActivated(source: Terminal) {
+        super.bufferActivated(source: source)
+        onBufferSwitch?()
+    }
+
     // MARK: Scroll wheel
 
     /// Wheel movement not yet sent as a whole line (trackpads report fractions).
@@ -263,7 +271,7 @@ class EnhancedTerminalView: TerminalView {
         let size = markedTextView.text.size()
         let width = ceil(size.width) + 2
         // Keep it inside the view when composing near the right edge.
-        let x = max(0, min(CGFloat(cursor.x) * cellWidth, bounds.width - width))
+        let x = max(0, min(CGFloat(cursor.x) * cellWidth, CGFloat(getTerminal().cols) * cellWidth - width))
         let y = bounds.height - CGFloat(cursor.y + 1) * cellHeight
         markedTextView.frame = NSRect(x: x, y: y, width: width, height: cellHeight)
         if markedTextView.superview !== self { addSubview(markedTextView) }

@@ -39,6 +39,10 @@ final class TerminalPaneView: NSView {
     private let scrollbarHost: NSHostingView<TerminalScrollbarView>
     private let dimView = PassthroughView()
     private let closeButton = PaneCloseButton()
+    /// Background-coloured patch behind the close button, from the pane's top edge to
+    /// just below the button: a scrollbar a full-screen program draws in its last
+    /// column then appears to start under the button instead of behind it.
+    private let closeBackdrop = PassthroughView()
     /// Set by the workspace; closes this pane.
     var onClose: (() -> Void)? {
         get { closeButton.onClick }
@@ -65,7 +69,10 @@ final class TerminalPaneView: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
+        // The terminal view hangs past the right edge (see layout()); keep it inside the pane.
+        layer?.masksToBounds = true
         terminalView.terminalDelegate = controller
+        terminalView.onBufferSwitch = { [weak self] in self?.needsLayout = true }
         controller.terminalView = terminalView
         terminalView.optionAsMetaKey = true // 启用 Option 键作为 Meta 键，支持 Option+Backspace 删除单词
 
@@ -88,6 +95,9 @@ final class TerminalPaneView: NSView {
         addSubview(scrollbarHost)
         addSubview(dimView)
         closeButton.isHidden = true
+        closeBackdrop.wantsLayer = true
+        closeBackdrop.isHidden = true
+        addSubview(closeBackdrop)
         addSubview(closeButton)   // on top of the dim overlay
         applyAppearance()
 
@@ -131,10 +141,19 @@ final class TerminalPaneView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        // Full-screen programs (pi, vim…) run in the alternate screen, where our
+        // scrollbar is hidden: they get the gutter too, so a scrollbar they draw
+        // themselves sits at the pane's edge, under the close button.
+        let fullScreenProgram = terminalView.getTerminal().isCurrentBufferAlternate
+        scrollbarHost.isHidden = fullScreenProgram
+        let trailing = fullScreenProgram ? PaneMetrics.insetTrailingFullScreen : PaneMetrics.insetTrailing
+        // SwiftTerm keeps room on its right for its own scroller, which we hide. Let
+        // that room hang past the pane's edge (clipped) instead of wasting ~2 columns.
+        let hiddenScroller = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
         terminalView.frame = NSRect(
             x: PaneMetrics.insetLeading,
             y: PaneMetrics.insetTop,
-            width: max(0, b.width - PaneMetrics.insetLeading - PaneMetrics.insetTrailing),
+            width: max(0, b.width - PaneMetrics.insetLeading - trailing + hiddenScroller),
             height: max(0, b.height - PaneMetrics.insetTop - PaneMetrics.insetBottom)
         )
         // In a split the close button takes the top of the scrollbar gutter, so the
@@ -146,6 +165,10 @@ final class TerminalPaneView: NSView {
                                       - closeButtonOffset.width,
                                    y: Self.closeButtonInset + closeButtonOffset.height,
                                    width: Self.closeButtonSize, height: Self.closeButtonSize)
+        // Only full-screen programs reach under the button; a shell's text stops at the gutter.
+        closeBackdrop.isHidden = closeButton.isHidden || !fullScreenProgram
+        closeBackdrop.frame = NSRect(x: closeButton.frame.minX - 1, y: 0,
+                                     width: closeButton.frame.width + 2, height: closeButton.frame.maxY + 3)
         dimView.frame = b
     }
 
@@ -189,6 +212,7 @@ final class TerminalPaneView: NSView {
             ? NSColor(calibratedRed: 0.847, green: 0.847, blue: 0.847, alpha: 1)
             : NSColor(calibratedRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)
         layer?.backgroundColor = background.cgColor
+        closeBackdrop.layer?.backgroundColor = background.cgColor
         dimView.layer?.backgroundColor = background.withAlphaComponent(0.42).cgColor
     }
 
