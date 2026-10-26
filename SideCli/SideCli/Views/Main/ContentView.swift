@@ -115,6 +115,8 @@ struct ContentView: View {
                 PanelDragHandle()
                     .frame(height: 20)
                     .frame(maxWidth: .infinity)
+                    // Leave the window buttons at the top-left clickable.
+                    .padding(.leading, 84)
                     .captureOnboardingTarget(.drag)
                 Spacer()
             }
@@ -214,19 +216,16 @@ struct ContentView: View {
 
     private var toolbarView: some View {
         HStack(spacing: 0) {
-            // Logo lockup: the app icon (same in both themes) + a monospaced wordmark
-            // that follows the theme (light text on dark, dark text on light).
-            HStack(spacing: 9) {
-                Image("LogoMark")
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 28, height: 28)
-                    .accessibilityHidden(true)
-                Text("SideCli")
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .kerning(-0.3)
-                    .foregroundColor(.primary)
-            }
+            // Window buttons, like a regular macOS window: hide / minimize to Dock / fill screen.
+            TrafficLights(
+                isMaximized: panelController.isMaximized,
+                closeHelp: t("Hide SideCli (⌘` or the Dock icon brings it back)", "隐藏 SideCli（按 ⌘` 或点 Dock 图标唤回）"),
+                minimizeHelp: t("Minimize to Dock", "最小化到 Dock"),
+                zoomHelp: panelController.isMaximized ? t("Restore Size", "还原大小") : t("Fill Screen", "铺满屏幕"),
+                onClose: { panelController.hideWindow() },
+                onMinimize: { panelController.minimizeToDock() },
+                onZoom: { panelController.toggleMaximize() }
+            )
 
             Spacer(minLength: 8)
 
@@ -626,3 +625,54 @@ class DragHandleView: NSView {
         .environmentObject(PanelController())
         .frame(width: 440, height: 700)
 }
+
+// MARK: - Window buttons
+
+/// Red / yellow / green buttons drawn like the system ones (12 pt, glyphs on hover).
+/// The panel is borderless, so the standard titlebar buttons aren't available.
+private struct TrafficLights: View {
+    let isMaximized: Bool
+    let closeHelp: String
+    let minimizeHelp: String
+    let zoomHelp: String
+    let onClose: () -> Void
+    let onMinimize: () -> Void
+    let onZoom: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            light(color: Color(red: 1.0, green: 0.373, blue: 0.341), glyph: "xmark", help: closeHelp, action: onClose)
+            light(color: Color(red: 0.996, green: 0.737, blue: 0.180), glyph: "minus", help: minimizeHelp, action: onMinimize)
+            light(color: Color(red: 0.157, green: 0.784, blue: 0.251),
+                  glyph: isMaximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                  help: zoomHelp, action: onZoom)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+    }
+
+    private func light(color: Color, glyph: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.14), lineWidth: 0.5))
+                .overlay {
+                    if isHovering {
+                        Image(systemName: glyph)
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(Color.black.opacity(0.55))
+                    }
+                }
+                .frame(width: 12, height: 12)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+

@@ -26,7 +26,9 @@ class FloatingPanel: NSPanel {
     init(contentRect: NSRect, contentView: NSView?) {
         super.init(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            // .miniaturizable lets the toolbar's yellow button minimize this borderless
+            // panel to the Dock (without it, miniaturize(_:) silently does nothing).
+            styleMask: [.borderless, .nonactivatingPanel, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
         )

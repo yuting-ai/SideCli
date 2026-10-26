@@ -36,6 +36,13 @@ class PanelController: NSObject, ObservableObject {
     /// Edge the panel is currently snapped to (nil = floating). Drives which
     /// side the width-resize handle sits on.
     @Published private(set) var snappedEdge: Edge? = EdgeSnapManager.savedEdge()
+    /// True while the green toolbar button has the panel filling the screen.
+    @Published private(set) var isMaximized = false
+    /// Frame to go back to when the green button is pressed again.
+    private var frameBeforeMaximize: NSRect?
+    /// True while SideCli itself animates the panel's frame. AppKit reports an animated
+    /// setFrame as a live resize, which must not be mistaken for the user resizing.
+    private var isApplyingFrame = false
 
     /// Width the panel had before a left/right split widened it automatically.
     /// Restored once no tab has a left/right split; cleared as soon as the user
@@ -61,6 +68,19 @@ class PanelController: NSObject, ObservableObject {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDeminiaturize),
+            name: NSWindow.didDeminiaturizeNotification,
+            object: panel
+        )
+    }
+
+    /// Back from the Dock: auto-hide was paused while minimized.
+    @objc private func handleDeminiaturize() {
+        panel?.autoHideManager?.resume()
+        panel?.autoHideManager?.showFull()
+        isVisible = true
     }
 
     @objc private func handleScreenChange() {
@@ -126,7 +146,7 @@ class PanelController: NSObject, ObservableObject {
         p.appearance = NSAppearance(named: isDarkTheme ? .darkAqua : .aqua)
 
         p.onLiveResizeEnd = { [weak self, weak p] in
-            guard let self, let p else { return }
+            guard let self, let p, !self.isApplyingFrame else { return }
             self.storeWidth(p.frame.width)
             self.panelHeight = p.frame.height
             self.commitResize()
@@ -156,7 +176,7 @@ class PanelController: NSObject, ObservableObject {
 
     func showWindow() {
         guard let p = panel else { return }
-        p.makeKeyAndOrderFront(nil)
+        p.makeKeyAndOrderFront(nil)   // also brings it back if it was minimized to the Dock
         p.autoHideManager?.showFull()
         // Shown by shortcut, not by hovering the edge: keep it out until the
         // mouse visits the panel or it loses key focus, so typing isn't cut off.
@@ -262,6 +282,7 @@ class PanelController: NSObject, ObservableObject {
 
     func resizeHeight(to newHeight: CGFloat) {
         guard let p = panel else { return }
+        leaveMaximized()
         let maxH = screenForPanel().visibleFrame.height
         let clamped = max(200, min(newHeight, maxH))
         panelHeight = clamped
@@ -290,12 +311,54 @@ class PanelController: NSObject, ObservableObject {
     private func storeWidth(_ width: CGFloat) {
         panelWidth = width
         widthBeforeAutoWiden = nil
+        leaveMaximized()
+    }
+
+    // MARK: - Window buttons (red / yellow / green)
+
+    /// Yellow: minimize the panel to the Dock like a regular window.
+    func minimizeToDock() {
+        guard let p = panel else { return }
+        p.autoHideManager?.suspend()   // no edge tracking while it sits in the Dock
+        p.miniaturize(nil)
+        isVisible = false
+    }
+
+    /// Green: fill the screen's visible area; press again to restore the previous frame.
+    func toggleMaximize() {
+        guard let p = panel else { return }
+        let target: NSRect
+        if let previous = frameBeforeMaximize {
+            target = previous
+            frameBeforeMaximize = nil
+            isMaximized = false
+        } else {
+            let screen = p.edgeSnapManager?.getCurrentEdge().flatMap { p.edgeSnapManager?.findOutermostScreen(for: $0) }
+                ?? screenForPanel()
+            frameBeforeMaximize = p.frame
+            target = screen.visibleFrame
+            isMaximized = true
+        }
+        p.autoHideManager?.showFull()
+        p.edgeSnapManager?.setProgrammaticMove(true)
+        isApplyingFrame = true
+        p.setFrame(target, display: true, animate: true)
+        isApplyingFrame = false
+        p.edgeSnapManager?.setProgrammaticMove(false)
+        NotificationCenter.default.post(name: .terminalLiveResizeDidEnd, object: nil)
+    }
+
+    /// A manual resize ends the maximized state (the green button then maximizes again).
+    private func leaveMaximized() {
+        guard isMaximized else { return }
+        frameBeforeMaximize = nil
+        isMaximized = false
     }
 
     /// Called after a left/right split was created. Widens the shared panel width
     /// when the new layout needs it (up to `autoWidenLimit`).
     func autoWidenForSplit(minimumWidth: CGFloat) {
-        guard let p = panel else { return }
+        guard let p = panel, !isMaximized else { return }
         let current = p.frame.width
         guard current + 0.5 < minimumWidth else { return }
         let limit = autoWidenLimit
@@ -312,7 +375,7 @@ class PanelController: NSObject, ObservableObject {
     /// left/right split any more, gives back the width an auto-widen took.
     func layoutsChanged(anyTabHasHorizontalSplit: Bool) {
         guard !anyTabHasHorizontalSplit, let previous = widthBeforeAutoWiden,
-              let p = panel, !p.inLiveResize else { return }
+              let p = panel, !p.inLiveResize, !isMaximized else { return }
         widthBeforeAutoWiden = nil
         panelWidth = previous
         commitResize()
@@ -352,7 +415,9 @@ class PanelController: NSObject, ObservableObject {
             case .left:  frame.origin.x = screen.visibleFrame.minX
             case nil:    break   // floating: grow to the right
             }
+            isApplyingFrame = true
             p.setFrame(frame, display: true, animate: p.isVisible)
+            isApplyingFrame = false
         } else {
             // Parked off-screen: resize, then re-park so no sliver peeks out.
             p.setFrame(frame, display: false)
