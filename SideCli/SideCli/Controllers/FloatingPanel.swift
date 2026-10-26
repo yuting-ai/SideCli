@@ -17,6 +17,10 @@ class FloatingPanel: NSPanel {
     private(set) var edgeSnapManager: EdgeSnapManager?
     private(set) var autoHideManager: AutoHideManager?
 
+    /// Docked to a screen edge: floats above other apps on every Space and never
+    /// activates SideCli. Otherwise it behaves like an ordinary app window.
+    private(set) var isDocked = true
+
     var onLiveResizeEnd: (() -> Void)?
     /// Called after a drag-snap animation completes with the final window origin.
     var onPositionCommitted: ((NSPoint) -> Void)?
@@ -115,6 +119,23 @@ class FloatingPanel: NSPanel {
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         let frame = edgeSnapManager?.constrainedFrame(for: frameRect) ?? frameRect
         super.setFrame(frame, display: flag)
+    }
+
+    // MARK: - Docked / window mode
+
+    func setDocked(_ docked: Bool) {
+        isDocked = docked
+        level = docked ? .floating : .normal
+        collectionBehavior = docked ? [.canJoinAllSpaces, .fullScreenAuxiliary] : []
+    }
+
+    // As a regular window, a click brings SideCli forward like any app
+    // (.nonactivatingPanel would otherwise leave the other app active and in front).
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, !isDocked, !NSApp.isActive {
+            NSApp.activate()
+        }
+        super.sendEvent(event)
     }
 
     // MARK: - Appearance

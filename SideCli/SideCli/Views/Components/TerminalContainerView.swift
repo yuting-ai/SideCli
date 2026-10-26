@@ -52,6 +52,8 @@ final class WorkspaceHandle: ObservableObject {
     func equalize() { workspace?.equalize() }
     func moveFocus(_ direction: FocusDirection) { workspace?.moveFocus(direction) }
     func closeFocusedPane() { workspace?.closeFocusedPane() }
+    func closeTab(_ tab: TerminalTab) { workspace?.closeTab(tab) }
+    func clearFocusedPane() { workspace?.clearFocusedPane() }
 
     func show(_ message: String, warning: Bool = false) {
         let toast = Toast(message: message, isWarning: warning)
@@ -186,6 +188,13 @@ final class SplitWorkspaceNSView: NSView {
                 let pane = TerminalPaneView(session: session, isDark: isDark, fontSize: fontSize)
                 let sessionID = session.id
                 pane.onClose = { [weak self] in
+                    guard let self, let tab = self.manager.tabs.first(where: { $0.root.contains(sessionID) }),
+                          let session = tab.sessions.first(where: { $0.id == sessionID }) else { return }
+                    self.confirmClose([session], closingTab: !tab.isSplit) {
+                        self.manager.closePane(sessionID, in: tab)
+                    }
+                }
+                pane.onShellExit = { [weak self] in
                     guard let self, let tab = self.manager.tabs.first(where: { $0.root.contains(sessionID) }) else { return }
                     self.manager.closePane(sessionID, in: tab)
                 }
@@ -239,7 +248,13 @@ final class SplitWorkspaceNSView: NSView {
                 if pane.isHidden == visible { pane.isHidden = !visible }
                 if isActive {
                     let focused = session.id == tab.focusedSessionID
-                    pane.setChrome(dimmed: showsSeveral && !focused, closable: tab.isSplit)
+                    // Divider lines sit mid-divider; push the button in by the same
+                    // amount where the pane meets the window edge instead.
+                    let lineGap = (PaneMetrics.dividerThickness - 1) / 2
+                    let offset = CGSize(width: frame.maxX >= rect.maxX - 0.5 ? lineGap : 0,
+                                        height: frame.minY <= rect.minY + 0.5 ? lineGap : 0)
+                    pane.setChrome(dimmed: showsSeveral && !focused, closable: tab.isSplit,
+                                   closeButtonOffset: offset)
                 }
             }
             if isActive {
@@ -404,7 +419,45 @@ final class SplitWorkspaceNSView: NSView {
     }
 
     func closeFocusedPane() {
-        manager.closeFocusedPane()
+        guard let tab = manager.activeTab else { return }
+        confirmClose([tab.focusedSession], closingTab: !tab.isSplit) { [weak self] in
+            self?.manager.closeFocusedPane()
+        }
+    }
+
+    func closeTab(_ tab: TerminalTab) {
+        confirmClose(tab.sessions, closingTab: true) { [weak self] in
+            self?.manager.closeTab(tab)
+        }
+    }
+
+    func clearFocusedPane() {
+        guard let tab = manager.activeTab else { return }
+        panes[tab.focusedSessionID]?.clearScreen()
+    }
+
+    /// Runs `close` right away, unless a program (not just the shell) is running in
+    /// one of `sessions`: closing would end it, so ask first.
+    private func confirmClose(_ sessions: [TerminalSession], closingTab: Bool, then close: @escaping () -> Void) {
+        let running = sessions.compactMap { $0.foregroundProcessName() }
+        guard !running.isEmpty, let window else { close(); return }
+
+        let zh = AppPreferences.language() == .chinese
+        let names = running.map { "“\($0)”" }.joined(separator: zh ? "、" : ", ")
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = closingTab ? t("Close this tab?", "关闭这个标签页？") : t("Close this pane?", "关闭这个窗格？")
+        alert.informativeText = running.count == 1
+            ? t("\(names) is still running. Closing will end it.", "\(names) 还在运行，关闭后它会被结束。")
+            : t("\(running.count) programs are still running (\(names)). Closing will end them.",
+                "有 \(running.count) 个程序还在运行（\(names)），关闭后它们会被结束。")
+        alert.addButton(withTitle: t("Close", "关闭")).hasDestructiveAction = true
+        alert.addButton(withTitle: t("Cancel", "取消"))   // Esc
+        panelController?.setSheetPresented(true)          // no auto-hide while asking
+        alert.beginSheetModal(for: window) { [weak self] response in
+            self?.panelController?.setSheetPresented(false)
+            if response == .alertFirstButtonReturn { close() }
+        }
     }
 }
 

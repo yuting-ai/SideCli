@@ -23,6 +23,8 @@ class AutoHideManager {
     /// Set when the panel is revealed by the global shortcut: don't auto-hide
     /// until the mouse has visited the panel or the panel resigns key.
     private var isHeldOpen = false
+    /// Off while the panel is an ordinary window (not docked to an edge, or filling the screen).
+    private var isEnabled = true
 
     private let hideDelay:              TimeInterval = 0.4
     private let mouseCheckInterval:     TimeInterval = 0.1
@@ -56,6 +58,7 @@ class AutoHideManager {
     private func syncWindowState() {
         guard let window = window,
               let screen = getCurrentScreen(),
+              isEnabled,
               !isSuppressed,
               !isPinned,
               !isHeldOpen else { return }
@@ -78,6 +81,7 @@ class AutoHideManager {
     private func checkMousePosition() {
         guard let fp = window as? FloatingPanel else { return }
         if fp.edgeSnapManager?.isCurrentlyDragging() == true { return }
+        guard isEnabled else { return }
 
         if isSuppressed {
             if !isExpanded { showFull() }
@@ -263,6 +267,13 @@ class AutoHideManager {
         isHeldOpen = true
     }
     func releaseHoldOpen() { isHeldOpen = false }
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        if !enabled {
+            cancelHideTimeout()
+            isHeldOpen = false
+        }
+    }
     func getPinned() -> Bool { isPinned }
     func getIsExpanded() -> Bool { isExpanded }
     func setSuppressed(_ suppressed: Bool) {

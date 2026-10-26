@@ -21,7 +21,7 @@ struct ContentView: View {
 
     private var activeTabIsSplit: Bool { manager.activeTab?.isSplit ?? false }
     private var activeTabIsZoomed: Bool { manager.activeTab?.zoomedSessionID != nil }
-    /// The tab bar only appears with two or more tabs; until then "+" lives in the toolbar.
+    /// The tab bar only appears with two or more tabs ("+" always lives in the toolbar).
     private var showsTabBar: Bool { manager.tabs.count > 1 }
     private var isOnboardingVisible: Bool { showWelcomeSheet || showCoachMarks }
     private var language: AppLanguage { AppLanguage(rawValue: appLanguageRaw) ?? .english }
@@ -62,9 +62,9 @@ struct ContentView: View {
             ),
             OnboardingStep(
                 target: .pin,
-                title: t("Pin Window", "窗口置顶"),
+                title: t("Pin Window", "固定窗口"),
                 description: t("Pin SideCli to prevent auto-hide while you work.",
-                               "将 SideCli 置顶，工作时可避免自动隐藏。")
+                               "固定 SideCli，工作时可避免自动隐藏。")
             )
         ]
     }
@@ -76,7 +76,7 @@ struct ContentView: View {
                 if showsTabBar {
                     TerminalTabBar(
                         manager: manager,
-                        onNewTab: { manager.createTab() },
+                        onCloseTab: { workspace.closeTab($0) },
                         onSplit: { tab, axis in
                             manager.activateTab(tab)
                             workspace.split(.axis(axis))
@@ -111,17 +111,6 @@ struct ContentView: View {
                 ResizeHandle()
             }
 
-            VStack {
-                PanelDragHandle()
-                    .frame(height: 20)
-                    .frame(maxWidth: .infinity)
-                    // Leave the window buttons at the top-left clickable.
-                    .padding(.leading, 84)
-                    .captureOnboardingTarget(.drag)
-                Spacer()
-            }
-            .allowsHitTesting(true)
-
             if showCoachMarks {
                 OnboardingCoachMarksView(
                     stepIndex: onboardingStepIndex,
@@ -139,11 +128,8 @@ struct ContentView: View {
         }
         .preferredColorScheme(panelController.isDarkTheme ? .dark : .light)
         .background(appShortcuts)
-        .onReceive(NotificationCenter.default.publisher(for: .createNewTerminal)) { _ in
-            manager.createTab()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .closeActiveTerminal)) { _ in
-            manager.closeFocusedPane()
+        .onReceive(NotificationCenter.default.publisher(for: .appCommand)) { note in
+            if let box = note.object as? AppCommand.CommandBox { perform(box.command) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .saveSessionState)) { _ in
             manager.saveNow()
@@ -181,40 +167,96 @@ struct ContentView: View {
 
     private var appShortcuts: some View {
         Group {
-            Button("") { manager.createTab() }
-                .keyboardShortcut("t", modifiers: .command)
+            shortcut("t") { perform(.newTab) }
             // ⌘W closes the focused pane; the last pane of a tab closes the tab.
-            Button("") { workspace.closeFocusedPane() }
-                .keyboardShortcut("w", modifiers: .command)
-            Button("") { panelController.updateFontSize(panelController.fontSize + 1) }
-                .keyboardShortcut("+", modifiers: .command)
+            shortcut("w") { perform(.closePane) }
+            shortcut("+") { perform(.fontBigger) }
             // ⌘= is what users actually press on US layouts ("+" needs Shift).
-            Button("") { panelController.updateFontSize(panelController.fontSize + 1) }
-                .keyboardShortcut("=", modifiers: .command)
-            Button("") { panelController.updateFontSize(panelController.fontSize - 1) }
-                .keyboardShortcut("-", modifiers: .command)
-            Button("") { workspace.split(.auto) }
-                .keyboardShortcut("d", modifiers: .command)
-            Button("") { workspace.split(.opposite) }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-            Button("") { workspace.toggleZoom() }
-                .keyboardShortcut(.return, modifiers: [.command, .shift])
-            Button("") { workspace.moveFocus(.left) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            Button("") { workspace.moveFocus(.right) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-            Button("") { workspace.moveFocus(.up) }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-            Button("") { workspace.moveFocus(.down) }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            shortcut("=") { perform(.fontBigger) }
+            shortcut("-") { perform(.fontSmaller) }
+            shortcut("0") { perform(.fontReset) }
+            shortcut("d") { perform(.split(.auto)) }
+            shortcut("d", [.command, .shift]) { perform(.split(.opposite)) }
+            shortcut(.return, [.command, .shift]) { perform(.toggleZoom) }
+            shortcut(.leftArrow, [.command, .option]) { perform(.moveFocus(.left)) }
+            shortcut(.rightArrow, [.command, .option]) { perform(.moveFocus(.right)) }
+            shortcut(.upArrow, [.command, .option]) { perform(.moveFocus(.up)) }
+            shortcut(.downArrow, [.command, .option]) { perform(.moveFocus(.down)) }
+            shortcut("k") { perform(.clearScreen) }
+            shortcut(",") { perform(.showSettings) }
+            // Also while docked, when SideCli isn't the active app and its menu bar isn't shown.
+            shortcut("q") { NSApp.terminate(nil) }
+            // ⌘⇧] / ⌘⇧[ — some layouts report the shifted character instead.
+            shortcut("]", [.command, .shift]) { perform(.nextTab) }
+            shortcut("}", [.command, .shift]) { perform(.nextTab) }
+            shortcut("[", [.command, .shift]) { perform(.previousTab) }
+            shortcut("{", [.command, .shift]) { perform(.previousTab) }
+            ForEach(1...9, id: \.self) { number in
+                shortcut(KeyEquivalent(Character(String(number)))) { perform(.selectTab(number)) }
+            }
         }
         .frame(width: 0, height: 0)
         .hidden()
     }
 
+    private func shortcut(_ key: KeyEquivalent, _ modifiers: EventModifiers = .command,
+                          action: @escaping () -> Void) -> some View {
+        Button("", action: action).keyboardShortcut(key, modifiers: modifiers)
+    }
+
+    /// Runs a command from a shortcut, the toolbar, the menu bar or the status-bar menu.
+    private func perform(_ command: AppCommand) {
+        switch command {
+        case .newTab:               manager.createTab()
+        case .closePane:            workspace.closeFocusedPane()
+        case .split(let mode):      workspace.split(mode)
+        case .toggleZoom:           workspace.toggleZoom()
+        case .equalize:             workspace.equalize()
+        case .moveFocus(let to):    workspace.moveFocus(to)
+        case .selectTab(let number):
+            // ⌘9 is always the last tab, as in browsers.
+            let index = number == 9 ? manager.tabs.count - 1 : number - 1
+            if manager.tabs.indices.contains(index) { manager.activateTab(manager.tabs[index]) }
+        case .nextTab:              cycleTab(by: 1)
+        case .previousTab:          cycleTab(by: -1)
+        case .fontBigger:           panelController.updateFontSize(panelController.fontSize + 1)
+        case .fontSmaller:          panelController.updateFontSize(panelController.fontSize - 1)
+        case .fontReset:            panelController.resetFontSize()
+        case .clearScreen:          workspace.clearFocusedPane()
+        case .toggleTheme:          panelController.toggleTheme()
+        case .showSettings:         showSettings = true
+        }
+    }
+
+    private func cycleTab(by step: Int) {
+        let tabs = manager.tabs
+        guard tabs.count > 1, let current = tabs.firstIndex(where: { $0.id == manager.activeTabId }) else { return }
+        manager.activateTab(tabs[(current + step + tabs.count) % tabs.count])
+    }
+
     // MARK: - Toolbar
 
     private var toolbarView: some View {
+        // A narrow panel gets the pane and theme buttons in a "⋯" menu; otherwise the
+        // toolbar would be wider than the panel and push the whole layout off its edges.
+        ViewThatFits(in: .horizontal) {
+            toolbarRow(compact: false)
+            toolbarRow(compact: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        // The toolbar's empty space acts as a title bar: drag to move, double-click
+        // to zoom. The buttons sit on top and keep their own clicks.
+        .background(
+            PanelDragHandle(onDoubleClick: { panelController.titleBarDoubleClicked() })
+                .captureOnboardingTarget(.drag)
+        )
+        .background(Color(NSColor.controlBackgroundColor))
+        .overlay(Rectangle().frame(height: 1).foregroundColor(Color(NSColor.separatorColor)),
+                 alignment: .bottom)
+    }
+
+    private func toolbarRow(compact: Bool) -> some View {
         HStack(spacing: 0) {
             // Window buttons, like a regular macOS window: hide / minimize to Dock / fill screen.
             TrafficLights(
@@ -230,79 +272,94 @@ struct ContentView: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 2) {
-                if !showsTabBar {
-                    Button(action: { manager.createTab() }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
+                iconButton("plus", help: t("New Tab (⌘T)", "新建标签页（⌘T）")) { perform(.newTab) }
+
+                if compact {
+                    moreMenu
+                } else {
+                    HStack(spacing: 2) {
+                        paneButton(.splitVertical, help: t("Split Top / Bottom (⌘D picks a direction automatically)", "上下分屏（⌘D 自动选方向）")) {
+                            perform(.split(.axis(.vertical)))
+                        }
+                        paneButton(.splitHorizontal, help: t("Split Left / Right", "左右分屏")) {
+                            perform(.split(.axis(.horizontal)))
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .help(t("New Tab (⌘T)", "新建标签页（⌘T）"))
-                }
-
-                HStack(spacing: 2) {
-                    paneButton(.splitVertical, help: t("Split Top / Bottom (⌘D picks a direction automatically)", "上下分屏（⌘D 自动选方向）")) {
-                        workspace.split(.axis(.vertical))
+                    .captureOnboardingTarget(.split)
+                    paneButton(.zoom, isActive: activeTabIsZoomed, isEnabled: activeTabIsSplit,
+                               help: activeTabIsZoomed ? t("Restore Layout (⌘⇧↩)", "还原布局（⌘⇧↩）") : t("Zoom Pane (⌘⇧↩)", "放大当前窗格（⌘⇧↩）")) {
+                        perform(.toggleZoom)
                     }
-                    paneButton(.splitHorizontal, help: t("Split Left / Right", "左右分屏")) {
-                        workspace.split(.axis(.horizontal))
+                    paneButton(.equalize, isEnabled: activeTabIsSplit, help: t("Equalize Panes", "均分窗格")) {
+                        perform(.equalize)
                     }
-                }
-                .captureOnboardingTarget(.split)
 
-                paneButton(.zoom, isActive: activeTabIsZoomed, isEnabled: activeTabIsSplit,
-                           help: activeTabIsZoomed ? t("Restore Layout (⌘⇧↩)", "还原布局（⌘⇧↩）") : t("Zoom Pane (⌘⇧↩)", "放大当前窗格（⌘⇧↩）")) {
-                    workspace.toggleZoom()
-                }
-                paneButton(.equalize, isEnabled: activeTabIsSplit, help: t("Equalize Panes", "均分窗格")) {
-                    workspace.equalize()
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 4)
+
+                    iconButton(panelController.isDarkTheme ? "moon.fill" : "sun.max.fill",
+                               help: panelController.isDarkTheme ? t("Switch to Light Theme", "切换为浅色主题") : t("Switch to Dark Theme", "切换为深色主题")) {
+                        perform(.toggleTheme)
+                    }
+                    .captureOnboardingTarget(.theme)
                 }
 
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 4)
+                iconButton("gearshape", help: t("Settings (⌘,)", "设置（⌘,）")) { perform(.showSettings) }
+                    .captureOnboardingTarget(.settings)
 
-                Button(action: { panelController.toggleTheme() }) {
-                    Image(systemName: panelController.isDarkTheme ? "moon.fill" : "sun.max.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
+                iconButton(panelController.isPinned ? "pin.fill" : "pin",
+                           tint: panelController.isPinned ? .accentColor : .secondary,
+                           help: !panelController.isDocked
+                               ? t("Auto-hide only applies when SideCli is docked to a screen edge", "仅在吸附到屏幕边缘时才会自动隐藏")
+                               : panelController.isPinned ? t("Unpin (allow auto-hide)", "取消固定（允许自动隐藏）") : t("Pin (prevent auto-hide)", "固定（阻止自动隐藏）")) {
+                    panelController.togglePin()
                 }
-                .buttonStyle(.plain)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .help(panelController.isDarkTheme ? t("Switch to Light Theme", "切换为浅色主题") : t("Switch to Dark Theme", "切换为深色主题"))
-                .captureOnboardingTarget(.theme)
-
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .help(t("Settings", "设置"))
-                .captureOnboardingTarget(.settings)
-
-                Button(action: { panelController.togglePin() }) {
-                    Image(systemName: panelController.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(panelController.isPinned ? .accentColor : .secondary)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .help(panelController.isPinned ? t("Unpin (allow auto-hide)", "取消置顶（允许自动隐藏）") : t("Pin (prevent auto-hide)", "置顶（阻止自动隐藏）"))
+                // Auto-hide only exists while docked to a screen edge.
+                .disabled(!panelController.isDocked)
+                .opacity(panelController.isDocked ? 1 : 0.4)
                 .captureOnboardingTarget(.pin)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color(NSColor.controlBackgroundColor))
-        .overlay(Rectangle().frame(height: 1).foregroundColor(Color(NSColor.separatorColor)),
-                 alignment: .bottom)
+    }
+
+    /// The pane and theme buttons, for a panel too narrow to show them all.
+    private var moreMenu: some View {
+        Menu {
+            Button(t("Split Top / Bottom", "上下分屏")) { perform(.split(.axis(.vertical))) }
+            Button(t("Split Left / Right", "左右分屏")) { perform(.split(.axis(.horizontal))) }
+            Divider()
+            Button(activeTabIsZoomed ? t("Restore Layout", "还原布局") : t("Zoom Pane", "放大当前窗格")) { perform(.toggleZoom) }
+                .disabled(!activeTabIsSplit)
+            Button(t("Equalize Panes", "均分窗格")) { perform(.equalize) }
+                .disabled(!activeTabIsSplit)
+            Divider()
+            Button(panelController.isDarkTheme ? t("Switch to Light Theme", "切换为浅色主题") : t("Switch to Dark Theme", "切换为深色主题")) {
+                perform(.toggleTheme)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 28, height: 28)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(t("More", "更多"))
+    }
+
+    private func iconButton(_ systemName: String, tint: Color = .secondary, help: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(tint)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ToolbarButtonStyle())
+        .help(help)
     }
 
     private func paneButton(_ kind: PaneGlyphKind, isActive: Bool = false, isEnabled: Bool = true,
@@ -313,10 +370,9 @@ struct ContentView: View {
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ToolbarButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.4)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .help(help)
     }
 
@@ -352,7 +408,7 @@ struct ContentView: View {
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ToolbarButtonStyle())
             .help(showCopiedPath ? t("Copied!", "已复制") : t("Copy Path", "复制路径"))
 
             Spacer(minLength: 8)
@@ -578,11 +634,20 @@ private struct ResizeHandle: View {
 // Full XY movement — EdgeSnapManager handles snapping to left/right edge after drag ends.
 
 struct PanelDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> DragHandleView { DragHandleView() }
-    func updateNSView(_ nsView: DragHandleView, context: Context) {}
+    var onDoubleClick: () -> Void = {}
+
+    func makeNSView(context: Context) -> DragHandleView {
+        let view = DragHandleView()
+        view.onDoubleClick = onDoubleClick
+        return view
+    }
+    func updateNSView(_ nsView: DragHandleView, context: Context) {
+        nsView.onDoubleClick = onDoubleClick
+    }
 }
 
 class DragHandleView: NSView {
+    var onDoubleClick: (() -> Void)?
     private var isDragging = false
     private var dragStartScreenLocation: NSPoint = .zero
     private var windowStartLocation: NSPoint = .zero
@@ -597,8 +662,16 @@ class DragHandleView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    // Clicks reach the toolbar even while another app is active.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {
         guard let window = self.window else { return }
+        if event.clickCount == 2 {
+            isDragging = false
+            onDoubleClick?()
+            return
+        }
         isDragging = true
         dragStartScreenLocation = NSEvent.mouseLocation
         windowStartLocation = window.frame.origin
@@ -676,3 +749,28 @@ private struct TrafficLights: View {
     }
 }
 
+
+// MARK: - Toolbar button style
+
+/// Plain icon button with a soft rounded highlight on hover and press, shared by
+/// the toolbar buttons so they all react the same way.
+struct ToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverBody(configuration: configuration)
+    }
+
+    private struct HoverBody: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var isHovering = false
+
+        var body: some View {
+            configuration.label
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(!isEnabled ? 0 : configuration.isPressed ? 0.14 : isHovering ? 0.08 : 0))
+                )
+                .onHover { isHovering = $0 }
+        }
+    }
+}

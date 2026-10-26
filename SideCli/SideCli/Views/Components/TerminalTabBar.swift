@@ -12,12 +12,12 @@ import SwiftUI
 
 struct TerminalTabBar: View {
     @ObservedObject var manager: TerminalManager
-    var onNewTab: (() -> Void)?
+    /// Close a tab (goes through the workspace, which asks first if a program is running).
+    var onCloseTab: ((TerminalTab) -> Void)?
     /// Split the tab's focused pane (goes through the workspace, which checks it fits).
     var onSplit: ((TerminalTab, SplitAxis) -> Void)?
 
     @State private var hoveredTabId: UUID?
-    @State private var isHoveringNewButton = false
     @State private var draggingId: UUID?
     @State private var dropTargetId: UUID?
     @State private var dragOffsetX: CGFloat = 0
@@ -34,7 +34,7 @@ struct TerminalTabBar: View {
                             isHovered: hoveredTabId == tab.id,
                             onRename:   { manager.renameTab(tab, to: $0) },
                             onSelect:   { manager.activateTab(tab) },
-                            onClose:    { manager.closeTab(tab) },
+                            onClose:    { onCloseTab?(tab) },
                             onHover:    { hoveredTabId = $0 ? tab.id : nil },
                             onSplit:    { axis in onSplit?(tab, axis) },
                             onEqualize: { manager.equalizePanes(in: tab) }
@@ -65,23 +65,6 @@ struct TerminalTabBar: View {
                 .coordinateSpace(name: "tabBar")
             }
             .onPreferenceChange(TabFrameKey.self) { tabFrames = $0 }
-
-            Button(action: { onNewTab?() }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isHoveringNewButton ? .white : .secondary)
-                    .frame(width: 24, height: 24)
-                    .background(isHoveringNewButton ? Color.blue : Color.clear)
-                    .cornerRadius(4)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.15)) { isHoveringNewButton = hovering }
-            }
-            .padding(.trailing, 8)
-            .help(AppPreferences.language() == .chinese ? "新建标签页（⌘T）" : "New Tab (⌘T)")
-
-            Spacer()
         }
         .frame(height: 32)
         .background(Color(NSColor.controlBackgroundColor))
@@ -306,6 +289,6 @@ struct TerminalTabItem: View {
     manager.createTab(title: "Tab 2")
     manager.createTab(title: "Tab 3 with a very long name")
 
-    return TerminalTabBar(manager: manager, onNewTab: { print("New tab requested") })
+    return TerminalTabBar(manager: manager)
         .frame(height: 100)
 }

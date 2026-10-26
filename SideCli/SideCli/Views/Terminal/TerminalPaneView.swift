@@ -44,6 +44,14 @@ final class TerminalPaneView: NSView {
         get { closeButton.onClick }
         set { closeButton.onClick = newValue }
     }
+    /// Set by the workspace; removes the pane once its shell exited cleanly.
+    var onShellExit: (() -> Void)?
+    private var stateObserver: AnyCancellable?
+    private var isTornDown = false
+    /// Extra inset for the close button on sides that touch the workspace edge, so
+    /// it sits as far from the window edge as other panes' buttons sit from their
+    /// divider line (which is drawn in the middle of the divider).
+    private var closeButtonOffset = CGSize.zero
     private var isDark: Bool
     private var fontSize: Int
 
@@ -82,6 +90,38 @@ final class TerminalPaneView: NSView {
         closeButton.isHidden = true
         addSubview(closeButton)   // on top of the dim overlay
         applyAppearance()
+
+        stateObserver = session.$state.dropFirst().sink { [weak self] state in
+            guard case .finished(let code) = state else { return }
+            // $state fires before the value is stored; act once it has settled.
+            DispatchQueue.main.async { self?.shellExited(code: code) }
+        }
+    }
+
+    /// `exit` (code 0) closes the pane like Terminal.app does. Any other code leaves
+    /// it open with a note, so an error or a shell that can't start stays visible.
+    private func shellExited(code: Int32) {
+        guard !isTornDown else { return }
+        if code == 0 {
+            onShellExit?()
+            return
+        }
+        let note = AppPreferences.language() == .chinese
+            ? "[进程已退出，代码 \(code)。按回车重新启动，⌘W 关闭]"
+            : "[Process exited with code \(code). Press Return to restart, ⌘W to close.]"
+        terminalView.feed(text: "\r\n\u{1b}[0m\u{1b}[?25h\u{1b}[2m\(note)\u{1b}[0m\r\n")
+    }
+
+    /// ⌘K: drops the scrollback and clears the screen. At a shell prompt the shell
+    /// redraws its prompt (Ctrl-L); full-screen programs (vim, pi…) are left alone.
+    func clearScreen() {
+        guard !terminalView.getTerminal().isCurrentBufferAlternate else { return }
+        if session.state == .running, session.foregroundProcessName() == nil {
+            terminalView.feed(text: "\u{1b}[3J")
+            session.write("\u{0c}")
+        } else {
+            terminalView.feed(text: "\u{1b}[H\u{1b}[2J\u{1b}[3J")
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -99,22 +139,26 @@ final class TerminalPaneView: NSView {
         )
         // In a split the close button takes the top of the scrollbar gutter, so the
         // scrollbar starts just below it.
-        let gutterTop = closeButton.isHidden ? 0 : Self.closeButtonInset + Self.closeButtonSize + 3
+        let gutterTop = closeButton.isHidden ? 0 : Self.closeButtonInset + closeButtonOffset.height + Self.closeButtonSize + 3
         scrollbarHost.frame = NSRect(x: b.width - Self.scrollbarWidth, y: gutterTop,
                                      width: Self.scrollbarWidth, height: max(0, b.height - gutterTop))
-        closeButton.frame = NSRect(x: b.width - Self.scrollbarWidth + (Self.scrollbarWidth - Self.closeButtonSize) / 2,
-                                   y: Self.closeButtonInset,
+        closeButton.frame = NSRect(x: b.width - Self.scrollbarWidth + (Self.scrollbarWidth - Self.closeButtonSize) / 2
+                                      - closeButtonOffset.width,
+                                   y: Self.closeButtonInset + closeButtonOffset.height,
                                    width: Self.closeButtonSize, height: Self.closeButtonSize)
         dimView.frame = b
     }
 
     // MARK: Focus / dim
 
-    /// - Parameter closable: the tab is split, so this pane shows its close button.
-    func setChrome(dimmed: Bool, closable: Bool) {
+    /// - Parameters:
+    ///   - closable: the tab is split, so this pane shows its close button.
+    ///   - closeButtonOffset: how far to move the close button left / down.
+    func setChrome(dimmed: Bool, closable: Bool, closeButtonOffset: CGSize = .zero) {
         dimView.isHidden = !dimmed
-        if closeButton.isHidden == closable {
+        if closeButton.isHidden == closable || self.closeButtonOffset != closeButtonOffset {
             closeButton.isHidden = !closable
+            self.closeButtonOffset = closeButtonOffset
             needsLayout = true
         }
     }
@@ -150,6 +194,9 @@ final class TerminalPaneView: NSView {
 
     /// Detach from the session before the view goes away (the session may outlive it briefly).
     func teardown() {
+        isTornDown = true
+        stateObserver = nil
+        onShellExit = nil
         onClose = nil
         session.clearDataReceiver(owner: controller)
     }
@@ -187,6 +234,15 @@ final class TerminalPaneController: NSObject, TerminalViewDelegate {
     }
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        // The shell has exited: Return starts a new one, other keys are ignored.
+        // (A program that enabled the kitty keyboard protocol may have left Return
+        // encoded as CSI 13 u.)
+        if case .finished = session.state {
+            if data.contains(13) || data.contains(10) || Data(data).range(of: Data("\u{1b}[13".utf8)) != nil {
+                session.restart()
+            }
+            return
+        }
         let d = Data(data)
         if let s = String(data: d, encoding: .utf8), session.handleTerminalControlInput(s) { return }
         session.write(d)

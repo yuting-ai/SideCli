@@ -28,7 +28,10 @@ class TerminalSession: ObservableObject, Identifiable {
     /// 新建 session 时的起始目录（绝对路径），nil 表示 home 目录
     var startingDirectory: String?
 
-    private var process: Process?
+    /// Shell process; 0 once it has exited and been reaped. Read and changed on `queue`
+    /// after start().
+    private var shellPID: pid_t = 0
+    private var exitSource: DispatchSourceProcess?
     // PTY fds. After start() hands them over, they are only read / changed on
     // `queue`, and only closed by the read source's cancel handler, so a pending
     // write can never hit a closed (or already reused) descriptor.
@@ -68,25 +71,7 @@ class TerminalSession: ObservableObject, Identifiable {
     func start() {
         guard state == .idle else { return }
 
-        var master: Int32 = 0
-        var slave: Int32 = 0
-
-        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
-            state = .finished(1)
-            return
-        }
-
-        let flags = fcntl(master, F_GETFL)
-        _ = fcntl(master, F_SETFL, flags | O_NONBLOCK)
-        // Apply the latest known terminal size before launching the shell.
-        // Without this, split panes may boot with PTY default 80x24 and only
-        // get resized later, which can corrupt first-prompt rendering.
-        Self.setWindowSize(fd: master, cols: lastCols, rows: lastRows)
-
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-l"]
 
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
@@ -96,41 +81,105 @@ class TerminalSession: ObservableObject, Identifiable {
         // Prevent zsh from rendering the default end-of-line marker ("%") when prompt
         // lines are reflowed during early resize events (common when opening split panes).
         environment["PROMPT_EOL_MARK"] = ""
-        process.environment = environment
 
-        process.currentDirectoryURL = URL(fileURLWithPath: Self.usableDirectory(startingDirectory))
-        process.standardInput = FileHandle(fileDescriptor: slave)
-        process.standardOutput = FileHandle(fileDescriptor: slave)
-        process.standardError = FileHandle(fileDescriptor: slave)
+        // Start at the latest known terminal size. Without this, split panes may
+        // boot with PTY default 80x24 and only get resized later, which can corrupt
+        // first-prompt rendering.
+        var size = winsize()
+        size.ws_col = UInt16(clamping: lastCols)
+        size.ws_row = UInt16(clamping: lastRows)
 
-        do {
-            try process.run()
-        } catch {
-            close(master)
-            close(slave)
+        guard let (pid, master) = Self.spawnShell(shell, directory: Self.usableDirectory(startingDirectory),
+                                                  environment: environment, size: &size) else {
             state = .finished(1)
             return
         }
+        // Our own handle on the tty, only for reading its termios / foreground group.
+        let slave = open(ptsname(master), O_RDWR | O_NOCTTY | O_CLOEXEC)
+        let flags = fcntl(master, F_GETFL)
+        _ = fcntl(master, F_SETFL, flags | O_NONBLOCK)
+        // Shells started later must not inherit this pane's PTY: it would keep the
+        // tty open after the pane closes, so its shell would never get SIGHUP.
+        _ = fcntl(master, F_SETFD, FD_CLOEXEC)
 
         // Nothing has been dispatched to `queue` yet, so this hand-off is safe;
         // from here on the fds belong to `queue`.
         ptyMaster = master
         ptySlave = slave
-        self.process = process
+        shellPID = pid
         state = .running
+        Self.live.add(self)
 
         setupReadSource()
+        watchForExit(pid)
+    }
 
-        process.terminationHandler = { [weak self] process in
-            self?.queue.async { self?.teardownOnQueue() }
-            DispatchQueue.main.async {
-                self?.state = .finished(process.terminationStatus)
-            }
+    /// Starts `shell` as a login shell in a new session whose controlling terminal is
+    /// a new PTY, like Terminal.app does, and returns its pid and the PTY's master.
+    /// Foundation's Process can't do that, and without a controlling terminal resizing
+    /// the PTY never sends SIGWINCH, so TUIs (pi, opencode, vim…) kept drawing at
+    /// their old size after a split, zoom or panel resize. posix_spawn can't either:
+    /// it applies its file actions before POSIX_SPAWN_SETSID.
+    ///
+    /// Everything the child needs is prepared before forkpty, and the child only
+    /// makes async-signal-safe calls.
+    private static func spawnShell(_ shell: String, directory: String, environment: [String: String],
+                                   size: inout winsize) -> (pid: pid_t, master: Int32)? {
+        let argv = [shell, "-l"].map { strdup($0) } + [nil]
+        let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        let cwd = strdup(directory)
+        defer { (argv + envp + [cwd]).forEach { free($0) } }
+        guard let cwd, let program = argv[0] else { return nil }
+
+        var noSignals = sigset_t()
+        sigemptyset(&noSignals)
+        let maxDescriptor = getdtablesize()
+
+        var master: Int32 = -1
+        let pid = forkpty(&master, nil, nil, &size)
+        if pid == 0 {
+            // Don't leak the app's descriptors into the shell.
+            var fd: Int32 = 3
+            while fd < maxDescriptor { _ = close(fd); fd += 1 }
+            _ = chdir(cwd)
+            // Default signal handling and an empty mask, like a fresh login.
+            var signalNumber: Int32 = 1
+            while signalNumber < NSIG { _ = signal(signalNumber, SIG_DFL); signalNumber += 1 }
+            _ = sigprocmask(SIG_SETMASK, &noSignals, nil)
+            _ = execve(program, argv, envp)
+            _exit(127)
+        }
+        return pid > 0 ? (pid, master) : nil
+    }
+
+    /// Reaps the shell when it exits and tears the session down.
+    private func watchForExit(_ pid: pid_t) {
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+        source.setEventHandler { [weak self] in self?.reapShellOnQueue() }
+        exitSource = source
+        source.resume()
+        // The shell may already have exited before the source was armed.
+        queue.async { [weak self] in self?.reapShellOnQueue() }
+    }
+
+    /// Must run on `queue`.
+    private func reapShellOnQueue() {
+        guard shellPID > 0 else { return }
+        var status: Int32 = 0
+        guard waitpid(shellPID, &status, WNOHANG) == shellPID else { return }
+        shellPID = 0
+        exitSource?.cancel()
+        exitSource = nil
+        teardownOnQueue()
+        // Exit code, or the terminating signal's number (as Process reported it).
+        let code = status & 0x7f == 0 ? (status >> 8) & 0xff : status & 0x7f
+        DispatchQueue.main.async { [weak self] in
+            self?.state = .finished(code)
         }
     }
 
     /// `path` if it is an existing directory, otherwise home. A restored or
-    /// split-from directory may have been deleted, and Process.run() would
+    /// split-from directory may have been deleted, and posix_spawn would
     /// then fail and the tab would die immediately with exit code 1.
     private static func usableDirectory(_ path: String?) -> String {
         var isDirectory: ObjCBool = false
@@ -180,6 +229,34 @@ class TerminalSession: ObservableObject, Identifiable {
         }
     }
 
+    /// Every session that has started a shell (held weakly), across all tabs.
+    private static let live = NSHashTable<TerminalSession>.weakObjects()
+
+    /// Programs (not just shells) running in any session: quitting would end them.
+    static func runningProgramNames() -> [String] {
+        live.allObjects.compactMap { $0.foregroundProcessName() }
+    }
+
+    /// Starts a fresh shell in a session whose shell has exited (same pane, same size).
+    func restart() {
+        guard case .finished = state else { return }
+        queue.sync {}   // let the old shell's teardown finish before reusing the fields
+        state = .idle
+        start()
+    }
+
+    /// Name of the program running in the foreground (pi, vim, npm…), or nil when the
+    /// shell itself is waiting at its prompt. Closing would end that program.
+    func foregroundProcessName() -> String? {
+        guard state == .running else { return nil }
+        return queue.sync {
+            guard shellPID > 0, let group = currentForegroundProcessGroup(), group != shellPID else { return nil }
+            var name = [CChar](repeating: 0, count: 256)
+            guard proc_name(group, &name, UInt32(name.count)) > 0 else { return "?" }
+            return String(cString: name)
+        }
+    }
+
     func write(_ string: String) {
         if let data = string.data(using: .utf8) {
             write(data)
@@ -203,9 +280,11 @@ class TerminalSession: ObservableObject, Identifiable {
     }
 
     func terminate() {
-        process?.terminate()
         queue.async { [weak self] in
-            self?.teardownOnQueue()
+            guard let self else { return }
+            // Hang up like a closed terminal window; an interactive zsh ignores SIGTERM.
+            if self.shellPID > 0 { _ = Darwin.kill(self.shellPID, SIGHUP) }
+            self.teardownOnQueue()
         }
     }
 
@@ -315,8 +394,8 @@ class TerminalSession: ObservableObject, Identifiable {
             }
         }
 
-        guard let process = process, process.isRunning else { return }
-        let shellPid = pid_t(process.processIdentifier)
+        let shellPid = shellPID
+        guard shellPid > 0 else { return }
 
         // 2) Fallback: signal the shell's process group directly.
         let shellPgid = getpgid(shellPid)
@@ -430,6 +509,17 @@ class TerminalSession: ObservableObject, Identifiable {
             source.cancel()   // cancel handler closes the fds
         } else {
             Self.closeDescriptors(master: ptyMaster, slave: ptySlave)
+        }
+        exitSource?.cancel()
+        // Still running: hang it up and reap it off the main thread, so it can't
+        // linger as a zombie.
+        let pid = shellPID
+        if pid > 0 {
+            _ = Darwin.kill(pid, SIGHUP)
+            DispatchQueue.global(qos: .utility).async {
+                var status: Int32 = 0
+                _ = waitpid(pid, &status, 0)
+            }
         }
     }
 }

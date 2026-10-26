@@ -35,11 +35,21 @@ class PanelController: NSObject, ObservableObject {
     @Published var fontSize:    Int     = UserDefaults.standard.object(forKey: K.fontSizeKey)  as? Int     ?? K.defaultFontSize
     /// Edge the panel is currently snapped to (nil = floating). Drives which
     /// side the width-resize handle sits on.
-    @Published private(set) var snappedEdge: Edge? = EdgeSnapManager.savedEdge()
+    @Published private(set) var snappedEdge: Edge? = EdgeSnapManager.savedEdge() {
+        didSet { applyWindowMode(); scheduleWindowStateSave() }
+    }
     /// True while the green toolbar button has the panel filling the screen.
-    @Published private(set) var isMaximized = false
+    @Published private(set) var isMaximized = false {
+        didSet { applyWindowMode(); scheduleWindowStateSave() }
+    }
+    /// SideCli has two modes. Docked to a screen edge it is a side panel: always on
+    /// top, auto-hiding, never taking focus from the app you work in. Dragged away
+    /// from the edge, or filling the screen, it is an ordinary window that other
+    /// apps can cover. Launching always starts docked.
+    var isDocked: Bool { snappedEdge != nil && !isMaximized }
     /// Frame to go back to when the green button is pressed again.
     private var frameBeforeMaximize: NSRect?
+    private var pendingWindowStateSave: DispatchWorkItem?
     /// True while SideCli itself animates the panel's frame. AppKit reports an animated
     /// setFrame as a live resize, which must not be mistaken for the user resizing.
     private var isApplyingFrame = false
@@ -74,6 +84,43 @@ class PanelController: NSObject, ObservableObject {
             name: NSWindow.didDeminiaturizeNotification,
             object: panel
         )
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(scheduleWindowStateSave), name: name, object: panel)
+        }
+    }
+
+    // MARK: - Window state (restored at the next launch)
+
+    /// Saves shortly after the panel stops moving, so a drag or an animation is
+    /// written once, and a quit that skips applicationWillTerminate loses little.
+    @objc private func scheduleWindowStateSave() {
+        pendingWindowStateSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveWindowState() }
+        pendingWindowStateSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    func saveWindowState() {
+        guard let p = panel, !p.isMiniaturized else { return }
+        // Auto-hide parks a docked panel off-screen; that position isn't worth keeping.
+        let isParked = !(p.autoHideManager?.getIsExpanded() ?? true)
+        WindowState.save(frame: isParked ? nil : p.frame, isFloating: snappedEdge == nil,
+                         isMaximized: isMaximized, frameBeforeMaximize: frameBeforeMaximize)
+    }
+
+    /// The docked frame for `edge` (or a centred one), used when there is nothing
+    /// better to restore to.
+    private func defaultFrame(edge: Edge?, on screen: NSScreen) -> NSRect {
+        let vf = screen.visibleFrame
+        let w = max(300, min(panelWidth, vf.width)), h = max(200, min(panelHeight, vf.height))
+        let x: CGFloat
+        switch edge {
+        case .left:  x = vf.minX
+        case .right: x = vf.maxX - w
+        case nil:    x = vf.midX - w / 2
+        }
+        return NSRect(x: x, y: vf.midY - h / 2, width: w, height: h)
     }
 
     /// Back from the Dock: auto-hide was paused while minimized.
@@ -95,7 +142,8 @@ class PanelController: NSObject, ObservableObject {
               let edgeManager   = panel.edgeSnapManager,
               let autoHideManager = panel.autoHideManager,
               let edge = edgeManager.getCurrentEdge(),
-              let screen = edgeManager.findOutermostScreen(for: edge) else { return }
+              let screen = edgeManager.findOutermostScreen(for: edge),
+              !isMaximized else { return }
 
         if autoHideManager.getIsExpanded() {
             edgeManager.snapToEdge(edge, screen: screen)
@@ -129,7 +177,16 @@ class PanelController: NSObject, ObservableObject {
         } else {
             y = vf.midY - h / 2
         }
-        let initialFrame = NSRect(x: x, y: y, width: w, height: h)
+        // Come back the way SideCli was left: docked, a regular window, or filling the screen.
+        let placement = WindowState.savedPlacement()
+        WindowState.launchPlacement = placement
+        let initialFrame: NSRect
+        switch placement {
+        case .floating(let frame), .maximized(let frame, _, _):
+            initialFrame = frame
+        case .docked:
+            initialFrame = NSRect(x: x, y: y, width: w, height: h)
+        }
 
         // Build SwiftUI content wrapped in a background view
         let wrapper = PanelBackgroundView(frame: NSRect(origin: .zero, size: initialFrame.size))
@@ -168,8 +225,27 @@ class PanelController: NSObject, ObservableObject {
         if let edgeManager = panel?.edgeSnapManager {
             snappedEdge = edgeManager.getCurrentEdge()
             edgeManager.onEdgeChanged = { [weak self] edge in self?.snappedEdge = edge }
+            // Moving a screen-filling panel ends "filled"; it then docks or floats
+            // depending on where it is dropped.
+            edgeManager.onUserDragEnded = { [weak self] in self?.leaveMaximized() }
         }
+        if case .maximized(_, let before, let edge) = WindowState.launchPlacement, let panel {
+            frameBeforeMaximize = before ?? defaultFrame(edge: edge, on: panel.screen ?? NSScreen.main ?? NSScreen())
+            isMaximized = true
+        }
+        applyWindowMode()
         isVisible = true
+    }
+
+    private func applyWindowMode() {
+        guard let panel else { return }
+        let docked = isDocked
+        guard docked != panel.isDocked else { return }
+        panel.setDocked(docked)
+        panel.autoHideManager?.setEnabled(docked)
+        if !docked, panel.isVisible, !panel.isMiniaturized {
+            NSApp.activate()   // just became a window: keep it in front and focused
+        }
     }
 
     // MARK: - Show / Hide (menu bar toggle — mirrors SidePeek WindowManager)
@@ -182,6 +258,7 @@ class PanelController: NSObject, ObservableObject {
         // mouse visits the panel or it loses key focus, so typing isn't cut off.
         p.autoHideManager?.holdOpenUntilMouseVisits()
         p.autoHideManager?.resume()
+        if !isDocked { NSApp.activate() }   // a regular window comes forward with its app
         isVisible = true
     }
 
@@ -196,7 +273,9 @@ class PanelController: NSObject, ObservableObject {
         // An auto-hidden panel is still ordered in (isVisible == true) but parked
         // off-screen, so treat it as hidden and bring it back.
         let isExpanded = p.autoHideManager?.getIsExpanded() ?? true
-        if p.isVisible && isExpanded {
+        // A regular window covered by other apps' windows is brought forward, not hidden.
+        let isInFront = isDocked || (NSApp.isActive && p.isKeyWindow)
+        if p.isVisible && isExpanded && isInFront {
             hideWindow()
         } else {
             showWindow()
@@ -348,6 +427,16 @@ class PanelController: NSObject, ObservableObject {
         NotificationCenter.default.post(name: .terminalLiveResizeDidEnd, object: nil)
     }
 
+    /// Double-click on the toolbar's empty space, like a title bar. Follows System
+    /// Settings › Desktop & Dock › "Double-click a window's title bar to".
+    func titleBarDoubleClicked() {
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": minimizeToDock()
+        case "None":     break
+        default:         toggleMaximize()   // "Maximize" / "Fill" / not set
+        }
+    }
+
     /// A manual resize ends the maximized state (the green button then maximizes again).
     private func leaveMaximized() {
         guard isMaximized else { return }
@@ -435,6 +524,8 @@ class PanelController: NSObject, ObservableObject {
     func saveYPosition(_ y: CGFloat) {
         UserDefaults.standard.set(y, forKey: K.posYKey)
     }
+
+    func resetFontSize() { updateFontSize(K.defaultFontSize) }
 
     func updateFontSize(_ size: Int) {
         fontSize = max(10, min(size, 28))

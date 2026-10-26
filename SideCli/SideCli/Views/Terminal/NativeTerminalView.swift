@@ -155,6 +155,66 @@ struct TerminalScrollbarView: View {
 // MARK: - EnhancedTerminalView
 
 class EnhancedTerminalView: TerminalView {
+
+    // MARK: Input method (marked text)
+
+    /// Text an input method is still composing (e.g. pinyin before a candidate is
+    /// picked). SwiftTerm accepts it but never shows it, so it is drawn here at the
+    /// cursor, underlined, the way Terminal.app does.
+    private var markedText = ""
+    private let markedTextView = MarkedTextView()
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        markedText = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        updateMarkedTextView()
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        markedText = ""
+        updateMarkedTextView()
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        markedText = ""   // a picked candidate replaces the composition
+        updateMarkedTextView()
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func hasMarkedText() -> Bool { !markedText.isEmpty }
+
+    override func markedRange() -> NSRange {
+        markedText.isEmpty ? NSRange(location: NSNotFound, length: 0)
+                           : NSRange(location: 0, length: (markedText as NSString).length)
+    }
+
+    private func updateMarkedTextView() {
+        guard !markedText.isEmpty else {
+            markedTextView.removeFromSuperview()
+            return
+        }
+        markedTextView.text = NSAttributedString(string: markedText, attributes: [
+            .font: font,
+            .foregroundColor: nativeForegroundColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: nativeForegroundColor,
+        ])
+        markedTextView.background = nativeBackgroundColor
+        // Same cell metrics SwiftTerm uses to place its caret (not public API).
+        let scale = window?.backingScaleFactor ?? 2
+        let cellWidth = ceil(font.advancement(forGlyph: font.glyph(withName: "W")).width * scale) / scale
+        let cellHeight = ceil(ceil(font.ascender - font.descender + font.leading) * scale) / scale
+        let cursor = getTerminal().getCursorLocation()
+        let size = markedTextView.text.size()
+        let width = ceil(size.width) + 2
+        // Keep it inside the view when composing near the right edge.
+        let x = max(0, min(CGFloat(cursor.x) * cellWidth, bounds.width - width))
+        let y = bounds.height - CGFloat(cursor.y + 1) * cellHeight
+        markedTextView.frame = NSRect(x: x, y: y, width: width, height: cellHeight)
+        if markedTextView.superview !== self { addSubview(markedTextView) }
+        markedTextView.needsDisplay = true
+    }
     
     @objc override func paste(_ sender: Any?) {
         let pb = NSPasteboard.general
@@ -269,3 +329,22 @@ extension Notification.Name {
     static let terminalLiveResizeDidEnd = Notification.Name("com.sidecli.terminalLiveResizeDidEnd")
 }
 
+
+// MARK: - Marked text overlay
+
+/// Draws an input method's in-progress composition over the terminal cell grid.
+/// Never takes mouse events.
+private final class MarkedTextView: NSView {
+    var text = NSAttributedString()
+    var background = NSColor.clear
+
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        background.setFill()
+        bounds.fill()
+        let size = text.size()
+        text.draw(at: NSPoint(x: 1, y: (bounds.height - size.height) / 2))
+    }
+}

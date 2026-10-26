@@ -23,6 +23,8 @@ class EdgeSnapManager {
     var onPositionCommitted: ((NSPoint) -> Void)?
     /// Fired whenever the snapped edge changes (nil = floating).
     var onEdgeChanged: ((Edge?) -> Void)?
+    /// Fired when the user finishes dragging the panel, before it snaps (or not).
+    var onUserDragEnded: (() -> Void)?
     private var currentEdge: Edge?
     private var isUserDragging = false
     private var isProgrammaticMove = false
@@ -60,6 +62,16 @@ class EdgeSnapManager {
     }
 
     private func setupInitialState() {
+        switch WindowState.launchPlacement {
+        case .floating:
+            return   // a regular window last time: stays where PanelController put it
+        case .maximized(_, _, let edge):
+            // Filled from a docked panel: keep the edge for when it's restored.
+            currentEdge = edge
+            return
+        case .docked:
+            break
+        }
         let edge = Self.savedEdge()
         let screen = findOutermostScreen(for: edge)
             ?? NSScreen.main
@@ -198,6 +210,7 @@ class EdgeSnapManager {
         isUserDragging = false
         dragEndCheckTimer?.invalidate()
         dragEndCheckTimer = nil
+        onUserDragEnded?()
         handleWindowSnapToEdge()
     }
 
