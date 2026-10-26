@@ -110,6 +110,7 @@ final class SplitWorkspaceNSView: NSView {
     /// (e.g. from the tab-rename text field).
     private var focusTarget: UUID?
     private var mouseMonitor: Any?
+    private var scrollMonitor: Any?
 
     init(manager: TerminalManager, panelController: PanelController, handle: WorkspaceHandle,
          isDark: Bool, fontSize: Int) {
@@ -129,6 +130,11 @@ final class SplitWorkspaceNSView: NSView {
             self?.focusPane(under: event)
             return event
         }
+        // Full-screen programs get the wheel (see EnhancedTerminalView.forwardScrollWheel).
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let pane = self?.pane(under: event) else { return event }
+            return pane.terminalView.forwardScrollWheel(event) ? nil : event
+        }
         sync()
     }
 
@@ -136,11 +142,14 @@ final class SplitWorkspaceNSView: NSView {
 
     deinit {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
     }
 
     func teardown() {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
         mouseMonitor = nil
+        scrollMonitor = nil
         panes.values.forEach { $0.teardown() }
     }
 
@@ -312,17 +321,27 @@ final class SplitWorkspaceNSView: NSView {
     }
 
     private func focusPane(under event: NSEvent) {
-        guard let window, event.window === window, let tab = manager.activeTab else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        for session in tab.sessions {
-            guard let pane = panes[session.id], !pane.isHidden, pane.frame.contains(point) else { continue }
-            if tab.focusedSessionID != session.id {
-                focusTarget = session.id   // the click itself makes it first responder
-                tab.focus(session.id)
-            }
-            return
+        guard let tab = manager.activeTab, let pane = pane(under: event),
+              tab.focusedSessionID != pane.session.id else { return }
+        focusTarget = pane.session.id   // the click itself makes it first responder
+        tab.focus(pane.session.id)
+    }
+
+    /// The visible pane of the active tab under the mouse, if the event is in this window.
+    private func pane(under event: NSEvent) -> TerminalPaneView? {
+        guard let window, let tab = manager.activeTab else { return nil }
+        let point: NSPoint
+        if event.window === window {
+            point = convert(event.locationInWindow, from: nil)
+        } else if event.window == nil, window.frame.contains(event.locationInWindow) {
+            // Window-less events (e.g. posted ones) carry screen coordinates.
+            point = convert(window.convertPoint(fromScreen: event.locationInWindow), from: nil)
+        } else {
+            return nil
         }
+        guard bounds.contains(point) else { return nil }
+        return tab.sessions.lazy.compactMap { self.panes[$0.id] }
+            .first { !$0.isHidden && $0.frame.contains(point) }
     }
 
     func moveFocus(_ direction: FocusDirection) {

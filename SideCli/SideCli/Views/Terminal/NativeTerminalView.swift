@@ -156,6 +156,63 @@ struct TerminalScrollbarView: View {
 
 class EnhancedTerminalView: TerminalView {
 
+    /// Size of one character cell — the same metrics SwiftTerm uses (not public API).
+    private var cellSize: CGSize {
+        let scale = window?.backingScaleFactor ?? 2
+        return CGSize(width: ceil(font.advancement(forGlyph: font.glyph(withName: "W")).width * scale) / scale,
+                      height: ceil(ceil(font.ascender - font.descender + font.leading) * scale) / scale)
+    }
+
+    // MARK: Scroll wheel
+
+    /// Wheel movement not yet sent as a whole line (trackpads report fractions).
+    private var pendingWheelLines: CGFloat = 0
+
+    /// SwiftTerm only ever scrolls its own scrollback with the wheel. Full-screen
+    /// programs (pi, vim, less…) have none: they run in the alternate screen and keep
+    /// their own history. Like Terminal.app and iTerm2, give the wheel to them:
+    /// as mouse-wheel events when the program asked for mouse reporting, otherwise
+    /// as ↑ / ↓ keys while the alternate screen is up.
+    ///
+    /// SwiftTerm's scrollWheel(with:) can't be overridden from outside its module, so
+    /// the workspace calls this first. Returns false when SwiftTerm should scroll.
+    func forwardScrollWheel(_ event: NSEvent) -> Bool {
+        let terminal = getTerminal()
+        let reportsMouse = allowMouseReporting && terminal.mouseMode != .off
+        guard reportsMouse || terminal.isCurrentBufferAlternate else {
+            pendingWheelLines = 0
+            return false
+        }
+
+        let cell = cellSize
+        pendingWheelLines += event.hasPreciseScrollingDeltas
+            ? event.scrollingDeltaY / max(cell.height, 1)
+            : event.scrollingDeltaY
+        let lines = Int(pendingWheelLines)   // whole lines, toward zero
+        guard lines != 0 else { return true }
+        pendingWheelLines -= CGFloat(lines)
+        let up = lines > 0                   // same direction SwiftTerm scrolls for positive deltas
+        let count = min(abs(lines), 10)      // a hard flick shouldn't flood the program
+
+        if reportsMouse {
+            let point = convert(event.locationInWindow, from: nil)
+            let col = max(0, min(terminal.cols - 1, Int(point.x / cell.width)))
+            let row = max(0, min(terminal.rows - 1, Int((bounds.height - point.y) / cell.height)))
+            let flags = terminal.encodeButton(button: up ? 4 : 5, release: false,
+                                              shift: event.modifierFlags.contains(.shift),
+                                              meta: event.modifierFlags.contains(.option),
+                                              control: event.modifierFlags.contains(.control))
+            for _ in 0..<count {
+                terminal.sendEvent(buttonFlags: flags, x: col, y: row,
+                                   pixelX: Int(point.x), pixelY: Int(bounds.height - point.y))
+            }
+        } else {
+            let key = terminal.applicationCursor ? (up ? "\u{1b}OA" : "\u{1b}OB") : (up ? "\u{1b}[A" : "\u{1b}[B")
+            send(txt: String(repeating: key, count: count))
+        }
+        return true
+    }
+
     // MARK: Input method (marked text)
 
     /// Text an input method is still composing (e.g. pinyin before a candidate is
@@ -201,10 +258,7 @@ class EnhancedTerminalView: TerminalView {
             .underlineColor: nativeForegroundColor,
         ])
         markedTextView.background = nativeBackgroundColor
-        // Same cell metrics SwiftTerm uses to place its caret (not public API).
-        let scale = window?.backingScaleFactor ?? 2
-        let cellWidth = ceil(font.advancement(forGlyph: font.glyph(withName: "W")).width * scale) / scale
-        let cellHeight = ceil(ceil(font.ascender - font.descender + font.leading) * scale) / scale
+        let (cellWidth, cellHeight) = (cellSize.width, cellSize.height)
         let cursor = getTerminal().getCursorLocation()
         let size = markedTextView.text.size()
         let width = ceil(size.width) + 2
